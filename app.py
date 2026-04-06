@@ -3,11 +3,11 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 
-# --- 1. GLOBAL CONFIG & DATE ---
+# --- 1. GLOBAL CONFIG & DATE (FIXED NameError) ---
 today = datetime.now().date()
 today_str = str(today)
 
-# --- 2. OPTIMIZED DATA LOADING ---
+# --- 2. DATA LOADING ---
 @st.cache_data(ttl=60)
 def load_data_cached(name, expected_cols):
     if os.path.exists(f"data_{name}.csv"):
@@ -51,68 +51,80 @@ if not st.session_state['logged_in']:
                 st.error("Invalid credentials!")
     st.stop()
 
-# --- 4. COLUMNS CONFIGURATION ---
+# --- 4. COLUMNS ---
 COLS = {
     "tasks": ["Date", "Task Category", "Task Name", "Planned Hours", "Actual Hours", "Status", "Remarks"],
     "qa": ["Date", "Channel", "Audit Count", "Critical Errors", "Accuracy %", "Hours Spent"],
-    "drivers": ["Name", "Phone", "City", "Interested", "Doc Status", "Acc Status", "Call Status", "First Trip"],
-    "revalidation": ["Date", "ID", "Category", "Re-validation Status", "Remarks"]
+    "drivers": ["Date", "Name", "Phone", "City", "Interested", "Doc Status", "Acc Status", "Call Status", "First Trip"],
+    "revalidation": ["Re-validation Date", "Execution Date", "Trip ID", "User/Driver Number", "User/Driver ID", "Suspension Reason", "Executed By", "Re-validation Status", "Remarks"]
 }
 
-# --- 5. SIDEBAR NAVIGATION ---
-st.sidebar.title(f"👤 {st.session_state['user']}")
+# --- 5. SIDEBAR ---
 page = st.sidebar.selectbox("Navigation", ["Dashboard", "Plan Daily Tasks", "Update Task Status (EOD)", "QA Details", "Driver Onboarding", "Suspension Re-Validation"])
-
 if st.sidebar.button("Logout"):
     st.session_state['logged_in'] = False
     st.rerun()
 
-# --- 6. PAGE: DASHBOARD ---
+# --- 6. PAGE: DASHBOARD (DYNAMIC UPDATED) ---
 if page == "Dashboard":
     st.header("📊 Performance Dashboard")
     t_df = load_data_cached("tasks", COLS["tasks"])
     q_df = load_data_cached("qa", COLS["qa"])
     d_df = load_data_cached("drivers", COLS["drivers"])
-    rv_df = load_data_cached("revalidation", COLS["revalidation"])
 
+    # Timeframe Filter
     view = st.radio("Timeframe:", ["Daily", "Weekly", "Monthly", "All Time"], horizontal=True)
     
     if not t_df.empty: t_df['Date'] = pd.to_datetime(t_df['Date']).dt.date
     if not q_df.empty: q_df['Date'] = pd.to_datetime(q_df['Date']).dt.date
+    if not d_df.empty: d_df['Date'] = pd.to_datetime(d_df['Date']).dt.date
 
     if view == "Daily":
-        t_f, q_f = t_df[t_df['Date'] == today], q_df[q_df['Date'] == today]
+        t_f = t_df[t_df['Date'] == today]
+        q_f = q_df[q_df['Date'] == today]
+        d_f = d_df[d_df['Date'] == today]
     elif view == "Weekly":
         sw = today - timedelta(days=today.weekday())
-        t_f, q_f = t_df[t_df['Date'] >= sw], q_df[q_df['Date'] >= sw]
+        t_f, q_f, d_f = t_df[t_df['Date'] >= sw], q_df[q_df['Date'] >= sw], d_df[d_df['Date'] >= sw]
+    elif view == "Monthly":
+        sm = today.replace(day=1)
+        t_f, q_f, d_f = t_df[t_df['Date'] >= sm], q_df[q_df['Date'] >= sm], d_df[d_df['Date'] >= sm]
     else:
-        t_f, q_f = t_df, q_df
+        t_f, q_f, d_f = t_df, q_df, d_df
 
-    p_hrs = t_f['Planned Hours'].sum() if not t_f.empty else 0
-    a_hrs = t_f['Actual Hours'].sum() if not t_f.empty else 0
-    qa_hrs = q_f['Hours Spent'].sum() if not q_f.empty else 0
-    total_actual = a_hrs + qa_hrs
-    eff = (total_actual / p_hrs * 100) if p_hrs > 0 else 0
-    onboarded = len(d_df[d_df['Acc Status'] == 'active']) if not d_df.empty else 0
+    # Metrics
+    c1, c2, c3 = st.columns(3)
+    audits = q_f['Audit Count'].sum() if not q_f.empty else 0
+    drivers = len(d_f[d_f['Acc Status'] == 'active']) if not d_f.empty else 0
+    total_p = t_f['Planned Hours'].sum() if not t_f.empty else 0
+    total_a = t_f['Actual Hours'].sum() + (q_f['Hours Spent'].sum() if not q_f.empty else 0)
+    overall_eff = (total_a / total_p * 100) if total_p > 0 else 0
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Planned Hours", f"{p_hrs}h")
-    c2.metric("Actual (Task+QA)", f"{total_actual}h")
-    c3.metric("Efficiency %", f"{eff:.1f}%")
-    c4.metric("Driver Onboarded", onboarded)
+    c1.metric("Total Audits", int(audits))
+    c2.metric("Drivers Onboarded", int(drivers))
+    c3.metric("Overall Efficiency", f"{overall_eff:.1f}%")
 
     st.divider()
-    st.subheader("✅ Completed Tasks")
+
+    # Task Breakdown Table
+    st.subheader("📋 Task Performance Breakdown")
     if not t_f.empty:
-        done = t_f[t_f['Status'] == 'Completed']
-        for _, r in done.iterrows():
-            st.write(f"✔️ **{r['Task Name']}** ({r['Task Category']}) | {r['Actual Hours']}h / {r['Planned Hours']}h")
-    
-    st.divider()
-    if not rv_df.empty:
-        st.subheader("📥 Export Suspension Report")
-        csv = rv_df.to_csv(index=False).encode('utf-8')
-        st.download_button("Download Report", csv, "Suspension_Report.csv", "text/csv")
+        # Grouping data to show count and hours
+        breakdown = t_f.groupby('Task Name').agg({
+            'Task Category': 'count',
+            'Planned Hours': 'sum',
+            'Actual Hours': 'sum'
+        }).rename(columns={'Task Category': 'Count'})
+        
+        breakdown['Efficiency %'] = (breakdown['Actual Hours'] / breakdown['Planned Hours'] * 100).round(1)
+        st.table(breakdown)
+        
+        # Performance Graph
+        st.subheader("📈 Category Productivity (Planned vs Actual)")
+        chart_data = t_f.groupby('Task Category')[['Planned Hours', 'Actual Hours']].sum()
+        st.bar_chart(chart_data)
+    else:
+        st.info("No tasks logged for this timeframe.")
 
 # --- 7. PAGE: PLAN DAILY TASKS ---
 elif page == "Plan Daily Tasks":
@@ -125,9 +137,8 @@ elif page == "Plan Daily Tasks":
         if st.form_submit_button("Add to Plan"):
             new = pd.DataFrame([[today_str, cat, name, ph, 0.0, "Planned", ""]], columns=COLS["tasks"])
             save_data(pd.concat([df, new]), "tasks")
-            st.success(f"Task added under {cat}!")
+            st.success("Task Added!")
             st.rerun()
-    
     st.subheader("Today's Plan")
     st.dataframe(df[df['Date'] == today_str])
 
@@ -135,59 +146,37 @@ elif page == "Plan Daily Tasks":
 elif page == "Driver Onboarding":
     st.header("🚗 Driver Management")
     df = load_data_cached("drivers", COLS["drivers"])
-    t1, t2 = st.tabs(["Add New Driver", "Update Existing Status"])
-    
-    with t1:
-        with st.form("add_dr", clear_on_submit=True):
-            c1, c2 = st.columns(2)
-            n = c1.text_input("Full Name")
-            p = c2.text_input("Phone Number")
-            city = c1.text_input("City")
-            intst = c2.selectbox("Interested?", ["Yes", "No", "Pending"])
-            ds = c1.selectbox("Doc Status", ["pending", "partially pending", "submitted"])
-            as_stat = c2.selectbox("Acc Status", ["pending", "active"])
-            cs = c1.selectbox("Call Status", ["Call received", "DNP"])
-            trip = c2.checkbox("First Trip Completed?")
-            if st.form_submit_button("Add Driver"):
-                new_dr = pd.DataFrame([[n, p, city, intst, ds, as_stat, cs, trip]], columns=COLS["drivers"])
-                save_data(pd.concat([df, new_dr]), "drivers")
-                st.success("Driver Added!")
-                st.rerun()
-
-    with t2:
-        if not df.empty:
-            name_select = st.selectbox("Select Driver to Update", df['Name'].unique())
-            idx = df[df['Name'] == name_select].index[0]
-            with st.form("up_dr"):
-                u_ds = st.selectbox("Doc Status", ["pending", "partially pending", "submitted"], index=["pending", "partially pending", "submitted"].index(df.at[idx, 'Doc Status']))
-                u_as = st.selectbox("Acc Status", ["pending", "active"], index=["pending", "active"].index(df.at[idx, 'Acc Status']))
-                u_cs = st.selectbox("Call Status", ["Call received", "DNP"], index=["Call received", "DNP"].index(df.at[idx, 'Call Status']))
-                u_f = st.checkbox("First Trip?", value=df.at[idx, 'First Trip'])
-                if st.form_submit_button("Update"):
-                    df.at[idx, 'Doc Status'], df.at[idx, 'Acc Status'], df.at[idx, 'Call Status'], df.at[idx, 'First Trip'] = u_ds, u_as, u_cs, u_f
-                    save_data(df, "drivers")
-                    st.success("Updated!")
-                    st.rerun()
+    with st.form("add_dr", clear_on_submit=True):
+        c1, c2 = st.columns(2)
+        n = c1.text_input("Full Name")
+        p = c2.text_input("Phone Number")
+        city = c1.text_input("City")
+        intst = c2.selectbox("Interested?", ["Yes", "No", "Pending"])
+        ds = c1.selectbox("Doc Status", ["pending", "partially pending", "submitted"])
+        as_stat = c2.selectbox("Acc Status", ["pending", "active"])
+        cs = c1.selectbox("Call Status", ["Call received", "DNP"])
+        trip = c2.checkbox("First Trip Completed?")
+        if st.form_submit_button("Save"):
+            new = pd.DataFrame([[today_str, n, p, city, intst, ds, as_stat, cs, trip]], columns=COLS["drivers"])
+            save_data(pd.concat([df, new]), "drivers")
+            st.rerun()
     st.dataframe(df)
 
 # --- 9. PAGE: UPDATE STATUS (EOD) ---
 elif page == "Update Task Status (EOD)":
-    st.header("✅ End of Day Task Update")
+    st.header("✅ End of Day Update")
     df = load_data_cached("tasks", COLS["tasks"])
     pending = df[(df['Date'] == today_str) & (df['Status'] == "Planned")]
-    
     if not pending.empty:
         for idx, row in pending.iterrows():
-            with st.expander(f"Update: {row['Task Name']} ({row['Task Category']})"):
+            with st.expander(f"Update: {row['Task Name']}"):
                 ah = st.number_input(f"Actual Hours", 0.0, 15.0, row['Planned Hours'], key=f"h{idx}")
                 stat = st.selectbox(f"Status", ["Completed", "Incompleted"], key=f"s{idx}")
-                rem = st.text_input(f"Remarks", key=f"r{idx}") if stat == "Incompleted" else ""
-                if st.button(f"Update Task", key=f"b{idx}"):
+                rem = st.text_input(f"Remarks", key=f"r{idx}")
+                if st.button(f"Update", key=f"b{idx}"):
                     df.at[idx, 'Actual Hours'], df.at[idx, 'Status'], df.at[idx, 'Remarks'] = ah, stat, rem
                     save_data(df, "tasks")
                     st.rerun()
-    else:
-        st.info("No pending tasks for today.")
     st.dataframe(df[df['Date'] == today_str])
 
 # --- 10. PAGE: QA DETAILS ---
@@ -202,89 +191,36 @@ elif page == "QA Details":
             acc = f"{((cnt-err)/cnt)*100:.2f}%"
             new = pd.DataFrame([[today_str, "General", cnt, err, acc, hrs]], columns=COLS["qa"])
             save_data(pd.concat([df, new]), "qa")
-            st.success("QA Logged!")
             st.rerun()
     st.dataframe(df)
 
-# --- PAGE: SUSPENSION RE-VALIDATION ---
+# --- 11. PAGE: SUSPENSION RE-VALIDATION (BULK) ---
 elif page == "Suspension Re-Validation":
-    st.header("🔍 User & Driver Suspension Re-Validation")
-    
-    # Required Internal Columns
+    st.header("🔍 Suspension Re-Validation")
     RV_COLS = ["Re-validation Date", "Execution Date", "Trip ID", "User/Driver Number", "User/Driver ID", "Suspension Reason", "Executed By", "Re-validation Status", "Remarks"]
     rv_df = load_data_cached("revalidation", RV_COLS)
-    
-    up = st.file_uploader("Upload Excel File", type=["xlsx", "csv"])
-    
+    up = st.file_uploader("Upload Excel", type=["xlsx", "csv"])
     if up:
         if 'temp_rv_data' not in st.session_state:
-            try:
-                # Load Excel
-                raw_data = pd.read_excel(up) if up.name.endswith('xlsx') else pd.read_csv(up)
-                
-                # Case-Insensitive & Space-striping mapping
-                raw_data.columns = [str(c).strip().lower() for c in raw_data.columns]
-                
-                mapping = {
-                    "Execution Date": "execution date",
-                    "Trip ID": "trip id",
-                    "User/Driver Number": "user/driver number",
-                    "User/Driver ID": "user/driver id",
-                    "Suspension Reason": "suspension reason",
-                    "Executed By": "executed by"
-                }
-
-                temp_rows = []
-                for _, row in raw_data.iterrows():
-                    new_row = {col: "" for col in RV_COLS}
-                    new_row["Re-validation Date"] = today_str 
-                    new_row["Re-validation Status"] = "Valid"
-                    
-                    for target_col, excel_col in mapping.items():
-                        if excel_col in raw_data.columns:
-                            new_row[target_col] = row[excel_col]
-                    
-                    temp_rows.append(new_row)
-                
-                st.session_state['temp_rv_data'] = pd.DataFrame(temp_rows)
-                
-            except Exception as e:
-                st.error(f"Error processing Excel: {e}")
-
+            raw = pd.read_excel(up) if up.name.endswith('xlsx') else pd.read_csv(up)
+            raw.columns = [str(c).strip().lower() for c in raw.columns]
+            temp_rows = []
+            for _, row in raw.iterrows():
+                new_row = {col: "" for col in RV_COLS}
+                new_row["Re-validation Date"] = today_str
+                new_row["Re-validation Status"] = "Valid"
+                mapping = {"Execution Date": "execution date", "Trip ID": "trip id", "User/Driver Number": "user/driver number", "User/Driver ID": "user/driver id", "Suspension Reason": "suspension reason", "Executed By": "executed by"}
+                for target, excel in mapping.items():
+                    if excel in raw.columns: new_row[target] = row[excel]
+                temp_rows.append(new_row)
+            st.session_state['temp_rv_data'] = pd.DataFrame(temp_rows)
+        
         if 'temp_rv_data' in st.session_state:
-            temp_df = st.session_state['temp_rv_data']
-            st.subheader("📝 Edit Uploaded Data")
-            
-            edited_df = st.data_editor(
-                temp_df,
-                column_config={
-                    "Re-validation Status": st.column_config.SelectboxColumn("Status", options=["Valid", "Invalid"], required=True),
-                    "Remarks": st.column_config.TextColumn("Remarks")
-                },
-                disabled=["Re-validation Date", "Execution Date", "Trip ID", "User/Driver Number", "User/Driver ID", "Suspension Reason", "Executed By"],
-                hide_index=True,
-                use_container_width=True
-            )
-
-            if st.button("Final Submission ✅", type="primary"):
-                final_save = pd.concat([rv_df, edited_df], ignore_index=True)
-                save_data(final_save, "revalidation")
+            edited = st.data_editor(st.session_state['temp_rv_data'], use_container_width=True, hide_index=True)
+            if st.button("Final Submission ✅"):
+                save_data(pd.concat([rv_df, edited], ignore_index=True), "revalidation")
                 del st.session_state['temp_rv_data']
-                st.success("Successfully Validated!")
                 st.rerun()
-
-    # --- SINGLE CLEAN HISTORY TABLE ---
     st.divider()
     st.subheader("Validation History")
-    
-    if not rv_df.empty:
-        # Filter out 'pending' or 'None' rows to show only actual data
-        clean_history = rv_df[
-            (rv_df["Trip ID"].notna()) & 
-            (rv_df["Trip ID"] != "pending") & 
-            (rv_df["Trip ID"] != "None") &
-            (rv_df["Trip ID"] != "")
-        ]
-        st.dataframe(clean_history, use_container_width=True, hide_index=True)
-    else:
-        st.info("No validation history found.")
+    st.dataframe(rv_df[rv_df["Trip ID"] != "pending"] if not rv_df.empty else rv_df, use_container_width=True, hide_index=True)
