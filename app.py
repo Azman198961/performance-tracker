@@ -222,13 +222,9 @@ elif page == "Suspension Re-Validation":
                 # Load Excel
                 raw_data = pd.read_excel(up) if up.name.endswith('xlsx') else pd.read_csv(up)
                 
-                # Case-Insensitive Mapping Logic (Headers space ba capital letter issue fix korbe)
+                # Case-Insensitive & Space-striping mapping
                 raw_data.columns = [str(c).strip().lower() for c in raw_data.columns]
                 
-                # Prothomei ekta blank template toiri kora
-                uploaded_data = pd.DataFrame(columns=RV_COLS)
-                
-                # Data pull korbe logic (Lower case mapping)
                 mapping = {
                     "Execution Date": "execution date",
                     "Trip ID": "trip id",
@@ -238,14 +234,12 @@ elif page == "Suspension Re-Validation":
                     "Executed By": "executed by"
                 }
 
-                # Excel theke data mapping kora
                 temp_rows = []
                 for _, row in raw_data.iterrows():
-                    new_row = {col: "" for col in RV_COLS} # Default empty
-                    new_row["Re-validation Date"] = today_str # Aajker date
+                    new_row = {col: "" for col in RV_COLS}
+                    new_row["Re-validation Date"] = today_str 
                     new_row["Re-validation Status"] = "Valid"
                     
-                    # Excel-er header match korle data nibe
                     for target_col, excel_col in mapping.items():
                         if excel_col in raw_data.columns:
                             new_row[target_col] = row[excel_col]
@@ -259,9 +253,8 @@ elif page == "Suspension Re-Validation":
 
         if 'temp_rv_data' in st.session_state:
             temp_df = st.session_state['temp_rv_data']
-            st.subheader("📝 Edit Uploaded Data before Final Submit")
+            st.subheader("📝 Edit Uploaded Data")
             
-            # Interactive Editor
             edited_df = st.data_editor(
                 temp_df,
                 column_config={
@@ -274,17 +267,24 @@ elif page == "Suspension Re-Validation":
             )
 
             if st.button("Final Submission ✅", type="primary"):
-                # Global store-e save kora
                 final_save = pd.concat([rv_df, edited_df], ignore_index=True)
                 save_data(final_save, "revalidation")
                 del st.session_state['temp_rv_data']
                 st.success("Successfully Validated!")
                 st.rerun()
 
+    # --- SINGLE CLEAN HISTORY TABLE ---
     st.divider()
     st.subheader("Validation History")
-    # History theke 'pending' ba 'None' row gulo filter kora (clean view)
-    clean_history = rv_df[rv_df["Trip ID"] != "pending"].dropna(subset=["Trip ID"])
-    st.dataframe(clean_history, use_container_width=True)
-    st.subheader("Validation History")
-    st.dataframe(rv_df, use_container_width=True)
+    
+    if not rv_df.empty:
+        # Filter out 'pending' or 'None' rows to show only actual data
+        clean_history = rv_df[
+            (rv_df["Trip ID"].notna()) & 
+            (rv_df["Trip ID"] != "pending") & 
+            (rv_df["Trip ID"] != "None") &
+            (rv_df["Trip ID"] != "")
+        ]
+        st.dataframe(clean_history, use_container_width=True, hide_index=True)
+    else:
+        st.info("No validation history found.")
