@@ -3,7 +3,11 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 
-# --- 1. OPTIMIZED DATA LOADING ---
+# --- 1. GLOBAL CONFIG & DATE ---
+today = datetime.now().date()
+today_str = str(today)
+
+# --- 2. OPTIMIZED DATA LOADING ---
 @st.cache_data(ttl=60)
 def load_data_cached(name, expected_cols):
     if os.path.exists(f"data_{name}.csv"):
@@ -21,7 +25,7 @@ def save_data(df, name):
     df.to_csv(f"data_{name}.csv", index=False)
     st.cache_data.clear()
 
-# --- 2. ACCESS CONTROL ---
+# --- 3. ACCESS CONTROL ---
 USER_CREDENTIALS = {
     "asikul.islam@pathao.com": "Win@1234",
     "jahidul.saimon@pathao.com": "saimon9090",
@@ -34,7 +38,7 @@ if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 
 if not st.session_state['logged_in']:
-    st.title("🔐 Secure Access")
+    st.title("🔐 Secure Access Control")
     with st.form("login"):
         u_email = st.text_input("Email").lower().strip()
         u_pass = st.text_input("Password", type="password")
@@ -47,7 +51,7 @@ if not st.session_state['logged_in']:
                 st.error("Invalid credentials!")
     st.stop()
 
-# --- 3. CONFIGURATION ---
+# --- 4. COLUMNS CONFIGURATION ---
 COLS = {
     "tasks": ["Date", "Task Category", "Task Name", "Planned Hours", "Actual Hours", "Status", "Remarks"],
     "qa": ["Date", "Channel", "Audit Count", "Critical Errors", "Accuracy %", "Hours Spent"],
@@ -55,7 +59,7 @@ COLS = {
     "revalidation": ["Date", "ID", "Category", "Re-validation Status", "Remarks"]
 }
 
-# --- 4. NAVIGATION ---
+# --- 5. SIDEBAR NAVIGATION ---
 st.sidebar.title(f"👤 {st.session_state['user']}")
 page = st.sidebar.selectbox("Navigation", ["Dashboard", "Plan Daily Tasks", "Update Task Status (EOD)", "QA Details", "Driver Onboarding", "Suspension Re-Validation"])
 
@@ -63,7 +67,7 @@ if st.sidebar.button("Logout"):
     st.session_state['logged_in'] = False
     st.rerun()
 
-# --- PAGE: DASHBOARD ---
+# --- 6. PAGE: DASHBOARD ---
 if page == "Dashboard":
     st.header("📊 Performance Dashboard")
     t_df = load_data_cached("tasks", COLS["tasks"])
@@ -72,8 +76,8 @@ if page == "Dashboard":
     rv_df = load_data_cached("revalidation", COLS["revalidation"])
 
     view = st.radio("Timeframe:", ["Daily", "Weekly", "Monthly", "All Time"], horizontal=True)
-    today = datetime.now().date()
     
+    # Filter Logic
     if not t_df.empty: t_df['Date'] = pd.to_datetime(t_df['Date']).dt.date
     if not q_df.empty: q_df['Date'] = pd.to_datetime(q_df['Date']).dt.date
 
@@ -85,6 +89,7 @@ if page == "Dashboard":
     else:
         t_f, q_f = t_df, q_df
 
+    # Metrics
     p_hrs = t_f['Planned Hours'].sum() if not t_f.empty else 0
     a_hrs = t_f['Actual Hours'].sum() if not t_f.empty else 0
     qa_hrs = q_f['Hours Spent'].sum() if not q_f.empty else 0
@@ -104,8 +109,14 @@ if page == "Dashboard":
         done = t_f[t_f['Status'] == 'Completed']
         for _, r in done.iterrows():
             st.write(f"✔️ **{r['Task Name']}** | {r['Actual Hours']}h / {r['Planned Hours']}h")
+    
+    st.divider()
+    if not rv_df.empty:
+        st.subheader("📥 Export Suspension Report")
+        csv = rv_df.to_csv(index=False).encode('utf-8')
+        st.download_button("Download Weekly Report", csv, "Suspension_Report.csv", "text/csv")
 
-# --- PAGE: PLAN DAILY TASKS ---
+# --- 7. PAGE: PLAN DAILY TASKS ---
 elif page == "Plan Daily Tasks":
     st.header("📝 Morning Planning")
     df = load_data_cached("tasks", COLS["tasks"])
@@ -114,32 +125,33 @@ elif page == "Plan Daily Tasks":
         name = st.text_input("Task Name")
         ph = st.number_input("Planned Hours", 0.5, 12.0, 1.0)
         if st.form_submit_button("Add to Plan"):
-            new = pd.DataFrame([[str(today), cat, name, ph, 0.0, "Planned", ""]], columns=COLS["tasks"])
+            new = pd.DataFrame([[today_str, cat, name, ph, 0.0, "Planned", ""]], columns=COLS["tasks"])
             save_data(pd.concat([df, new]), "tasks")
             st.success("Task added!")
-    st.dataframe(df[df['Date'] == str(today)])
+            st.rerun()
+    
+    st.subheader("Today's Plan")
+    st.dataframe(df[df['Date'] == today_str])
 
-# --- PAGE: DRIVER ONBOARDING (RESTORED) ---
+# --- 8. PAGE: DRIVER ONBOARDING ---
 elif page == "Driver Onboarding":
     st.header("🚗 Driver Management")
     df = load_data_cached("drivers", COLS["drivers"])
-    
     t1, t2 = st.tabs(["Add New Driver", "Update Existing Status"])
     
     with t1:
         with st.form("add_dr", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            name = col1.text_input("Full Name")
-            phone = col2.text_input("Phone Number")
-            city = col1.text_input("City")
-            interest = col2.selectbox("Interested?", ["Yes", "No", "Pending"])
-            doc_s = col1.selectbox("Doc Status", ["pending", "partially pending", "submitted"])
-            acc_s = col2.selectbox("Acc Status", ["pending", "active"])
-            call_s = col1.selectbox("Call Status", ["Call received", "DNP"])
-            trip = col2.checkbox("First Trip Completed?")
-            
+            c1, c2 = st.columns(2)
+            n = c1.text_input("Full Name")
+            p = c2.text_input("Phone Number")
+            city = c1.text_input("City")
+            intst = c2.selectbox("Interested?", ["Yes", "No", "Pending"])
+            ds = c1.selectbox("Doc Status", ["pending", "partially pending", "submitted"])
+            as_stat = c2.selectbox("Acc Status", ["pending", "active"])
+            cs = c1.selectbox("Call Status", ["Call received", "DNP"])
+            trip = c2.checkbox("First Trip Completed?")
             if st.form_submit_button("Add Driver"):
-                new_dr = pd.DataFrame([[name, phone, city, interest, doc_s, acc_s, call_s, trip]], columns=COLS["drivers"])
+                new_dr = pd.DataFrame([[n, p, city, intst, ds, as_stat, cs, trip]], columns=COLS["drivers"])
                 save_data(pd.concat([df, new_dr]), "drivers")
                 st.success("Driver Added!")
                 st.rerun()
@@ -148,65 +160,70 @@ elif page == "Driver Onboarding":
         if not df.empty:
             name_select = st.selectbox("Select Driver to Update", df['Name'].unique())
             idx = df[df['Name'] == name_select].index[0]
-            with st.form("update_dr"):
+            with st.form("up_dr"):
                 u_ds = st.selectbox("Doc Status", ["pending", "partially pending", "submitted"], index=["pending", "partially pending", "submitted"].index(df.at[idx, 'Doc Status']))
                 u_as = st.selectbox("Acc Status", ["pending", "active"], index=["pending", "active"].index(df.at[idx, 'Acc Status']))
                 u_cs = st.selectbox("Call Status", ["Call received", "DNP"], index=["Call received", "DNP"].index(df.at[idx, 'Call Status']))
-                u_f = st.checkbox("First Trip Completed?", value=df.at[idx, 'First Trip'])
-                if st.form_submit_button("Update Details"):
-                    df.at[idx, 'Doc Status'], df.at[idx, 'Acc Status'] = u_ds, u_as
-                    df.at[idx, 'Call Status'], df.at[idx, 'First Trip'] = u_cs, u_f
+                u_f = st.checkbox("First Trip?", value=df.at[idx, 'First Trip'])
+                if st.form_submit_button("Update"):
+                    df.at[idx, 'Doc Status'], df.at[idx, 'Acc Status'], df.at[idx, 'Call Status'], df.at[idx, 'First Trip'] = u_ds, u_as, u_cs, u_f
                     save_data(df, "drivers")
-                    st.success("Status Updated!")
+                    st.success("Updated!")
                     st.rerun()
     st.dataframe(df)
 
-# --- PAGE: UPDATE STATUS ---
+# --- 9. PAGE: UPDATE STATUS (EOD) ---
 elif page == "Update Task Status (EOD)":
     st.header("✅ End of Day Task Update")
     df = load_data_cached("tasks", COLS["tasks"])
-    today_str = str(datetime.now().date())
     pending = df[(df['Date'] == today_str) & (df['Status'] == "Planned")]
     
-    for idx, row in pending.iterrows():
-        with st.expander(f"Task: {row['Task Name']}"):
-            ah = st.number_input(f"Actual Hours for {idx}", 0.0, 15.0, row['Planned Hours'], key=f"h{idx}")
-            stat = st.selectbox(f"Status {idx}", ["Completed", "Incompleted"], key=f"s{idx}")
-            rem = st.text_input(f"Remarks/Reason {idx}", key=f"r{idx}") if stat == "Incompleted" else ""
-            if st.button(f"Update {idx}"):
-                df.at[idx, 'Actual Hours'], df.at[idx, 'Status'], df.at[idx, 'Remarks'] = ah, stat, rem
-                save_data(df, "tasks")
-                st.rerun()
+    if not pending.empty:
+        for idx, row in pending.iterrows():
+            with st.expander(f"Update: {row['Task Name']}"):
+                ah = st.number_input(f"Actual Hours", 0.0, 15.0, row['Planned Hours'], key=f"h{idx}")
+                stat = st.selectbox(f"Status", ["Completed", "Incompleted"], key=f"s{idx}")
+                rem = st.text_input(f"Remarks", key=f"r{idx}") if stat == "Incompleted" else ""
+                if st.button(f"Update Task", key=f"b{idx}"):
+                    df.at[idx, 'Actual Hours'], df.at[idx, 'Status'], df.at[idx, 'Remarks'] = ah, stat, rem
+                    save_data(df, "tasks")
+                    st.rerun()
+    else:
+        st.info("No pending tasks for today.")
+    st.dataframe(df[df['Date'] == today_str])
 
-# --- PAGE: QA DETAILS ---
+# --- 10. PAGE: QA DETAILS ---
 elif page == "QA Details":
     st.header("🔍 QA Audit Logs")
     df = load_data_cached("qa", COLS["qa"])
-    with st.form("qa_form"):
+    with st.form("q_f"):
         cnt = st.number_input("Audit Count", min_value=1)
         err = st.number_input("Critical Errors", 0)
         if st.form_submit_button("Log QA"):
             hrs = (cnt * 15) / 60
             acc = f"{((cnt-err)/cnt)*100:.2f}%"
-            new = pd.DataFrame([[str(datetime.now().date()), "General", cnt, err, acc, hrs]], columns=COLS["qa"])
+            new = pd.DataFrame([[today_str, "General", cnt, err, acc, hrs]], columns=COLS["qa"])
             save_data(pd.concat([df, new]), "qa")
             st.success("QA Logged!")
+            st.rerun()
     st.dataframe(df)
 
-# --- PAGE: SUSPENSION RE-VALIDATION ---
+# --- 11. PAGE: SUSPENSION RE-VALIDATION ---
 elif page == "Suspension Re-Validation":
     st.header("🔍 User & Driver Suspension Re-Validation")
     rv_df = load_data_cached("revalidation", COLS["revalidation"])
     up = st.file_uploader("Upload Excel", type=["xlsx", "csv"])
     if up:
         data = pd.read_excel(up) if up.name.endswith('xlsx') else pd.read_csv(up)
+        st.write("Processing first 10 rows for validation:")
         for idx, row in data.head(10).iterrows():
             c1, c2, c3, c4 = st.columns([2, 2, 2, 2])
-            c1.write(f"ID: {row.iloc[0]}")
+            id_val = str(row.iloc[0])
+            c1.write(f"ID: {id_val}")
             val = c2.selectbox("Status", ["Valid", "Invalid"], key=f"v{idx}")
-            rem = c3.text_input("Remarks", key=f"r{idx}") if val == "Invalid" else ""
-            if c4.button("Confirm", key=f"cb{idx}"):
-                new_rv = pd.DataFrame([[str(datetime.now().date()), row.iloc[0], "Suspension", val, rem]], columns=COLS["revalidation"])
+            rem = c3.text_input("Remarks", key=f"rem{idx}") if val == "Invalid" else ""
+            if c4.button("Confirm", key=f"btn{idx}"):
+                new_rv = pd.DataFrame([[today_str, id_val, "Suspension", val, rem]], columns=COLS["revalidation"])
                 save_data(pd.concat([rv_df, new_rv]), "revalidation")
-                st.toast("Saved!")
+                st.toast(f"ID {id_val} Saved!")
     st.dataframe(rv_df)
