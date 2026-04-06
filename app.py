@@ -3,27 +3,40 @@ import pandas as pd
 from datetime import datetime
 import os
 
-# Page Config
-st.set_page_config(page_title="Performance Tracker", layout="wide")
+# Page Configuration
+st.set_page_config(page_title="Performance Pulse Tracker", layout="wide")
 
-# Data Loading Logic
+# Columns definition to keep everything synced
+COLS = {
+    "tasks": ["Date", "Task Name", "Description", "Planned Hours", "Actual Hours", "Manager Approved", "Status"],
+    "qa": ["Date", "Channel", "Audit Count", "Critical Errors", "Accuracy %", "Hours Spent"],
+    "drivers": ["Name", "Number", "City", "Interested?", "Docs Status", "Account Status", "First Trip"],
+    "train": ["Date", "Agent", "Topic", "Pre", "Post"],
+    "init": ["Project", "Desc", "Purpose", "Blocker", "Outcome", "Approval"]
+}
+
 def save_data(df, filename):
     df.to_csv(f"data_{filename}.csv", index=False)
 
-def load_data(filename, columns):
+def load_data(filename):
+    expected_cols = COLS.get(filename, [])
     if os.path.exists(f"data_{filename}.csv"):
-        return pd.read_csv(f"data_{filename}.csv")
-    return pd.DataFrame(columns=columns)
+        df = pd.read_csv(f"data_{filename}.csv")
+        # Add missing columns if any (to prevent KeyError)
+        for col in expected_cols:
+            if col not in df.columns:
+                df[col] = 0 if "Hours" in col or "Count" in col else ""
+        return df[expected_cols] # Ensure column order
+    return pd.DataFrame(columns=expected_cols)
 
-# Sidebar Navigation
+# Sidebar
 st.sidebar.title("Navigation")
 page = st.sidebar.radio("Go to:", ["Daily Tasks", "QA Details", "Driver Onboarding", "Training", "Initiatives", "Dashboard"])
 
 # --- PAGE 1: DAILY TASKS ---
 if page == "Daily Tasks":
     st.header("📋 Daily Task Tracker")
-    cols = ["Date", "Task Name", "Description", "Planned Hours", "Actual Hours", "Approved", "Status"]
-    df = load_data("tasks", cols)
+    df = load_data("tasks")
     with st.form("task_form", clear_on_submit=True):
         t_name = st.text_input("Task Name")
         desc = st.text_area("Description")
@@ -32,44 +45,39 @@ if page == "Daily Tasks":
         appr = st.checkbox("Manager Aligned?")
         stat = st.selectbox("Status", ["Planned", "Completed"])
         if st.form_submit_button("Save"):
-            new_row = pd.DataFrame([[datetime.now().date(), t_name, desc, p_hrs, a_hrs, appr, stat]], columns=cols)
+            new_row = pd.DataFrame([[datetime.now().date(), t_name, desc, p_hrs, a_hrs, appr, stat]], columns=COLS["tasks"])
             df = pd.concat([df, new_row], ignore_index=True)
             save_data(df, "tasks")
             st.success("Saved!")
     st.dataframe(df)
 
-# --- PAGE 2: QA DETAILS (Updated) ---
+# --- PAGE 2: QA DETAILS ---
 elif page == "QA Details":
     st.header("🔍 QA Audit Logs")
-    cols = ["Date", "Channel", "Audit Count", "Critical Errors", "Accuracy %", "Hours Spent"]
-    df = load_data("qa", cols)
-    
+    df = load_data("qa")
     with st.form("qa_form"):
-        channel = st.selectbox("Channel", ["Email", "Chat", "Call", "Social Media"])
+        ch = st.selectbox("Channel", ["Email", "Chat", "Call", "Social Media"])
         count = st.number_input("Audit Count", min_value=1)
-        errors = st.number_input("Critical Errors", min_value=0)
-        
-        # Calculation: 15 mins per audit
-        hours_spent = (count * 15) / 60 
-        accuracy = ((count - errors) / count) * 100
-        
+        err = st.number_input("Critical Errors", min_value=0)
+        hrs = (count * 15) / 60 
+        acc = f"{((count - err) / count) * 100:.2f}%"
         if st.form_submit_button("Log QA"):
-            new_data = pd.DataFrame([[datetime.now().date(), channel, count, errors, f"{accuracy}%", hours_spent]], columns=cols)
-            df = pd.concat([df, new_data], ignore_index=True)
+            new_row = pd.DataFrame([[datetime.now().date(), ch, count, err, acc, hrs]], columns=COLS["qa"])
+            df = pd.concat([df, new_row], ignore_index=True)
             save_data(df, "qa")
+            st.success("Logged!")
     st.dataframe(df)
 
 # --- PAGE 3: DRIVER ONBOARDING ---
 elif page == "Driver Onboarding":
     st.header("🚗 Driver Onboarding")
-    cols = ["Name", "Phone", "City", "Interested", "Doc Status", "Acc Status", "First Trip"]
-    df = load_data("drivers", cols)
+    df = load_data("drivers")
     with st.form("dr_form"):
         n = st.text_input("Name"); p = st.text_input("Phone"); c = st.text_input("City")
         i = st.selectbox("Interested?", ["Yes", "No"]); d = st.text_input("Doc Status")
         a = st.text_input("Acc Status"); f = st.checkbox("First Trip?")
-        if st.form_submit_button("Save"):
-            new_row = pd.DataFrame([[n, p, c, i, d, a, f]], columns=cols)
+        if st.form_submit_button("Save Driver"):
+            new_row = pd.DataFrame([[n, p, c, i, d, a, f]], columns=COLS["drivers"])
             df = pd.concat([df, new_row], ignore_index=True)
             save_data(df, "drivers")
     st.dataframe(df)
@@ -77,13 +85,12 @@ elif page == "Driver Onboarding":
 # --- PAGE 4: TRAINING ---
 elif page == "Training":
     st.header("🎓 Training Effectiveness")
-    cols = ["Date", "Agent", "Topic", "Pre", "Post"]
-    df = load_data("train", cols)
+    df = load_data("train")
     with st.form("tr_form"):
         ag = st.text_input("Agent Name"); top = st.text_input("Topic")
         pre = st.number_input("Pre-Score", 0); post = st.number_input("Post-Score", 0)
         if st.form_submit_button("Log"):
-            new_row = pd.DataFrame([[datetime.now().date(), ag, top, pre, post]], columns=cols)
+            new_row = pd.DataFrame([[datetime.now().date(), ag, top, pre, post]], columns=COLS["train"])
             df = pd.concat([df, new_row], ignore_index=True)
             save_data(df, "train")
     st.dataframe(df)
@@ -91,92 +98,51 @@ elif page == "Training":
 # --- PAGE 5: INITIATIVES ---
 elif page == "Initiatives":
     st.header("💡 New Initiatives")
-    cols = ["Project", "Desc", "Purpose", "Blocker", "Outcome", "Approval"]
-    df = load_data("init", cols)
+    df = load_data("init")
     with st.form("in_form"):
         prj = st.text_input("Project Name"); dsc = st.text_area("Desc")
         pur = st.text_input("Purpose"); blk = st.text_input("Blocker")
         out = st.text_input("Outcome"); ap = st.checkbox("Manager Approval")
         if st.form_submit_button("Submit"):
-            new_row = pd.DataFrame([[prj, dsc, pur, blk, out, ap]], columns=cols)
+            new_row = pd.DataFrame([[prj, dsc, pur, blk, out, ap]], columns=COLS["init"])
             df = pd.concat([df, new_row], ignore_index=True)
             save_data(df, "init")
     st.dataframe(df)
 
-# --- PAGE 6: DASHBOARD & EXPORT (Full Update) ---
+# --- PAGE 6: DASHBOARD ---
 elif page == "Dashboard":
-    st.header("📊 Performance Analytics Dashboard")
-    
-    # Load all data
-    tasks_df = load_data("tasks", ["Date", "Task Name", "Description", "Planned Hours", "Actual Hours", "Manager Approved", "Status"])
-    qa_df = load_data("qa", ["Date", "Channel", "Audit Count", "Critical Errors", "Accuracy %", "Hours Spent"])
-    drivers_df = load_data("drivers", ["Name", "Number", "City", "Interested?", "Docs Status", "Account Status", "First Trip"])
-    training_df = load_data("train", ["Date", "Agent", "Topic", "Pre", "Post"])
+    st.header("📊 Dashboard")
+    t_df = load_data("tasks"); q_df = load_data("qa")
+    d_df = load_data("drivers"); tr_df = load_data("train")
 
-    # Date Filter Logic
-    st.subheader("📅 Filter Report")
-    filter_type = st.radio("Select View:", ["Daily", "Weekly", "Monthly", "All Time"], horizontal=True)
+    st.subheader("📅 Date Filters")
+    f_type = st.radio("View:", ["Daily", "Weekly", "Monthly", "All Time"], horizontal=True)
     
-    # Convert Date column to datetime for filtering
-    if not tasks_df.empty:
-        tasks_df['Date'] = pd.to_datetime(tasks_df['Date']).dt.date
-    if not qa_df.empty:
-        qa_df['Date'] = pd.to_datetime(qa_df['Date']).dt.date
-
     today = datetime.now().date()
-    
-    # Filtering Data
-    if filter_type == "Daily":
-        tasks_df = tasks_df[tasks_df['Date'] == today]
-        qa_df = qa_df[qa_df['Date'] == today]
-    elif filter_type == "Weekly":
-        start_of_week = today - pd.Timedelta(days=today.weekday())
-        tasks_df = tasks_df[tasks_df['Date'] >= start_of_week]
-        qa_df = qa_df[qa_df['Date'] >= start_of_week]
-    elif filter_type == "Monthly":
-        tasks_df = tasks_df[pd.to_datetime(tasks_df['Date']).dt.month == today.month]
-        qa_df = qa_df[pd.to_datetime(qa_df['Date']).dt.month == today.month]
+    if not t_df.empty: t_df['Date'] = pd.to_datetime(t_df['Date']).dt.date
+    if not q_df.empty: q_df['Date'] = pd.to_datetime(q_df['Date']).dt.date
 
-    # Metrics Row 1
+    if f_type == "Daily":
+        t_df = t_df[t_df['Date'] == today]; q_df = q_df[q_df['Date'] == today]
+    elif f_type == "Weekly":
+        sw = today - pd.Timedelta(days=today.weekday())
+        t_df = t_df[t_df['Date'] >= sw]; q_df = q_df[q_df['Date'] >= sw]
+
     c1, c2, c3, c4 = st.columns(4)
-    
-    total_tasks = len(tasks_df[tasks_df['Status'] == 'Completed']) if not tasks_df.empty else 0
-    total_audits = int(qa_df['Audit Count'].sum()) if not qa_df.empty else 0
-    # QA Hours calculation (15 mins per audit)
-    total_qa_hours = qa_df['Hours Spent'].sum() if not qa_df.empty else 0
-    total_task_hours = tasks_df['Actual Hours'].sum() if not tasks_df.empty else 0
+    t_done = len(t_df[t_df['Status']=='Completed']) if not t_df.empty else 0
+    q_count = q_df['Audit Count'].sum() if not q_df.empty else 0
+    q_hrs = q_df['Hours Spent'].sum() if not q_df.empty else 0
+    d_count = len(d_df) if not d_df.empty else 0
 
-    c1.metric("Tasks Completed", total_tasks)
-    c2.metric("Total Audits Done", total_audits)
-    c3.metric("QA Hours (15m/ea)", f"{total_qa_hours} hrs")
-    c4.metric("Onboarded Drivers", len(drivers_df) if not drivers_df.empty else 0)
+    c1.metric("Tasks Done", t_done)
+    c2.metric("Audits Done", int(q_count))
+    c3.metric("QA Hours", f"{q_hrs} hrs")
+    c4.metric("Drivers", d_count)
 
-    # Metrics Row 2
     st.divider()
-    c5, c6 = st.columns(2)
-    with c5:
-        st.write("### 🕒 Total Productivity")
-        st.info(f"Total Combined Work Hours: **{total_qa_hours + total_task_hours} hrs**")
-    
-    with c6:
-        st.write("### 📈 Training Effectiveness")
-        if not training_df.empty:
-            avg_improvement = (pd.to_numeric(training_df['Post']) - pd.to_numeric(training_df['Pre'])).mean()
-            st.success(f"Average Performance Jump: **{avg_improvement:.2f}%**")
-        else:
-            st.write("No training data available.")
-
-    # Export Section
-    st.divider()
-    st.subheader("📥 Download Performance Report")
-    
-    if st.button("Generate Excel Report"):
-        report_name = f"PIP_Report_{filter_type}_{today}.xlsx"
-        with pd.ExcelWriter(report_name) as writer:
-            tasks_df.to_excel(writer, sheet_name="Tasks", index=False)
-            qa_df.to_excel(writer, sheet_name="QA_Audits", index=False)
-            drivers_df.to_excel(writer, sheet_name="Drivers", index=False)
-            training_df.to_excel(writer, sheet_name="Training", index=False)
-        
-        with open(report_name, "rb") as f:
-            st.download_button("Click here to Download", f, file_name=report_name)
+    if st.button("Download Final Excel Report"):
+        with pd.ExcelWriter("PIP_Report.xlsx") as writer:
+            t_df.to_excel(writer, sheet_name="Tasks")
+            q_df.to_excel(writer, sheet_name="QA")
+        with open("PIP_Report.xlsx", "rb") as f:
+            st.download_button("Click to Download", f, file_name="PIP_Report.xlsx")
