@@ -77,7 +77,6 @@ if page == "Dashboard":
 
     view = st.radio("Timeframe:", ["Daily", "Weekly", "Monthly", "All Time"], horizontal=True)
     
-    # Filter Logic
     if not t_df.empty: t_df['Date'] = pd.to_datetime(t_df['Date']).dt.date
     if not q_df.empty: q_df['Date'] = pd.to_datetime(q_df['Date']).dt.date
 
@@ -89,7 +88,6 @@ if page == "Dashboard":
     else:
         t_f, q_f = t_df, q_df
 
-    # Metrics
     p_hrs = t_f['Planned Hours'].sum() if not t_f.empty else 0
     a_hrs = t_f['Actual Hours'].sum() if not t_f.empty else 0
     qa_hrs = q_f['Hours Spent'].sum() if not q_f.empty else 0
@@ -108,7 +106,7 @@ if page == "Dashboard":
     if not t_f.empty:
         done = t_f[t_f['Status'] == 'Completed']
         for _, r in done.iterrows():
-            st.write(f"✔️ **{r['Task Name']}** | {r['Actual Hours']}h / {r['Planned Hours']}h")
+            st.write(f"✔️ **{r['Task Name']}** ({r['Task Category']}) | {r['Actual Hours']}h / {r['Planned Hours']}h")
     
     st.divider()
     if not rv_df.empty:
@@ -121,13 +119,14 @@ elif page == "Plan Daily Tasks":
     st.header("📝 Morning Planning")
     df = load_data_cached("tasks", COLS["tasks"])
     with st.form("p_form", clear_on_submit=True):
-        cat = st.selectbox("Category", ["QA Audit", "Rental Driver Onboarding", "Agent Training", "Initiatives", "User & Driver Suspension Re-Validation"])
+        # "Adhoc" category added here
+        cat = st.selectbox("Category", ["QA Audit", "Rental Driver Onboarding", "Agent Training", "Initiatives", "User & Driver Suspension Re-Validation", "Adhoc"])
         name = st.text_input("Task Name")
         ph = st.number_input("Planned Hours", 0.5, 12.0, 1.0)
         if st.form_submit_button("Add to Plan"):
             new = pd.DataFrame([[today_str, cat, name, ph, 0.0, "Planned", ""]], columns=COLS["tasks"])
             save_data(pd.concat([df, new]), "tasks")
-            st.success("Task added!")
+            st.success(f"Task '{name}' added under {cat}!")
             st.rerun()
     
     st.subheader("Today's Plan")
@@ -180,7 +179,7 @@ elif page == "Update Task Status (EOD)":
     
     if not pending.empty:
         for idx, row in pending.iterrows():
-            with st.expander(f"Update: {row['Task Name']}"):
+            with st.expander(f"Update: {row['Task Name']} ({row['Task Category']})"):
                 ah = st.number_input(f"Actual Hours", 0.0, 15.0, row['Planned Hours'], key=f"h{idx}")
                 stat = st.selectbox(f"Status", ["Completed", "Incompleted"], key=f"s{idx}")
                 rem = st.text_input(f"Remarks", key=f"r{idx}") if stat == "Incompleted" else ""
@@ -215,7 +214,6 @@ elif page == "Suspension Re-Validation":
     up = st.file_uploader("Upload Excel", type=["xlsx", "csv"])
     if up:
         data = pd.read_excel(up) if up.name.endswith('xlsx') else pd.read_csv(up)
-        st.write("Processing first 10 rows for validation:")
         for idx, row in data.head(10).iterrows():
             c1, c2, c3, c4 = st.columns([2, 2, 2, 2])
             id_val = str(row.iloc[0])
