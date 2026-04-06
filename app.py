@@ -206,21 +206,58 @@ elif page == "QA Details":
             st.rerun()
     st.dataframe(df)
 
-# --- 11. PAGE: SUSPENSION RE-VALIDATION ---
+# --- PAGE: SUSPENSION RE-VALIDATION (BULK UPDATE) ---
 elif page == "Suspension Re-Validation":
     st.header("🔍 User & Driver Suspension Re-Validation")
-    rv_df = load_data_cached("revalidation", COLS["revalidation"])
-    up = st.file_uploader("Upload Excel", type=["xlsx", "csv"])
+    
+    # Required Columns for this page
+    RV_COLS = ["Execution Date", "Trip ID", "User/Driver Number", "User/Driver ID", "Suspension Reason", "Executed By", "Re-validation Status", "Remarks"]
+    
+    rv_df = load_data_cached("revalidation", RV_COLS)
+    
+    up = st.file_uploader("Upload Excel File", type=["xlsx", "csv"])
+    
     if up:
-        data = pd.read_excel(up) if up.name.endswith('xlsx') else pd.read_csv(up)
-        for idx, row in data.head(10).iterrows():
-            c1, c2, c3, c4 = st.columns([2, 2, 2, 2])
-            id_val = str(row.iloc[0])
-            c1.write(f"ID: {id_val}")
-            val = c2.selectbox("Status", ["Valid", "Invalid"], key=f"v{idx}")
-            rem = c3.text_input("Remarks", key=f"rem{idx}") if val == "Invalid" else ""
-            if c4.button("Confirm", key=f"btn{idx}"):
-                new_rv = pd.DataFrame([[today_str, id_val, "Suspension", val, rem]], columns=COLS["revalidation"])
-                save_data(pd.concat([rv_df, new_rv]), "revalidation")
-                st.toast(f"ID {id_val} Saved!")
-    st.dataframe(rv_df)
+        # Excel data load kora
+        if 'temp_rv_data' not in st.session_state:
+            try:
+                uploaded_data = pd.read_excel(up) if up.name.endswith('xlsx') else pd.read_csv(up)
+                # Notun columns gulo initialize kora
+                uploaded_data["Re-validation Status"] = "Valid"
+                uploaded_data["Remarks"] = ""
+                st.session_state['temp_rv_data'] = uploaded_data
+            except Exception as e:
+                st.error(f"Error loading file: {e}")
+
+        if 'temp_rv_data' in st.session_state:
+            temp_df = st.session_state['temp_rv_data']
+            
+            st.subheader("Edit Uploaded Data")
+            # Interactive Table-er moto editable input
+            edited_df = st.data_editor(
+                temp_df,
+                column_config={
+                    "Re-validation Status": st.column_config.SelectboxColumn(
+                        "Status",
+                        options=["Valid", "Invalid"],
+                        required=True,
+                    ),
+                    "Remarks": st.column_config.TextColumn("Remarks (Required for Invalid)")
+                },
+                disabled=["Execution Date", "Trip ID", "User/Driver Number", "User/Driver ID", "Suspension Reason", "Executed By"],
+                hide_index=True,
+                use_container_width=True
+            )
+
+            if st.button("Final Submission", type="primary"):
+                # Global file-er sathe merge kora
+                final_save = pd.concat([rv_df, edited_df], ignore_index=True)
+                save_data(final_save, "revalidation")
+                del st.session_state['temp_rv_data'] # Cache clear
+                st.success(f"Successfully validated {len(edited_df)} records!")
+                st.rerun()
+
+    # History Table
+    st.divider()
+    st.subheader("Validation History")
+    st.dataframe(rv_df, use_container_width=True)
