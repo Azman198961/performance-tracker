@@ -150,7 +150,19 @@ elif page == "Dashboard":
     c2.metric("Audits Done", int(q_count))
     c3.metric("QA Hours", f"{q_hrs} hrs")
     c4.metric("Driver Onboarded", d_onboarded)
-
+# --- Task List Breakdown (New Update) ---
+    st.write("### ✅ Tasks Completed List")
+    if not t_df.empty:
+        # Shudhu Completed task gulo filter kore nam gulo nibe
+        completed_tasks_list = t_df[t_df['Status'] == 'Completed']['Task Name'].tolist()
+        
+        if completed_tasks_list:
+            for i, task in enumerate(completed_tasks_list, 1):
+                st.write(f"{i}. {task}")
+        else:
+            st.info("No tasks completed yet for this period.")
+    else:
+        st.info("No task data found.")
     st.divider()
     # Excel Download logic
     if st.button("Generate Excel Report"):
