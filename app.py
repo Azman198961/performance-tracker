@@ -210,7 +210,7 @@ elif page == "QA Details":
 elif page == "Suspension Re-Validation":
     st.header("🔍 User & Driver Suspension Re-Validation")
     
-    # Updated Columns with Upload Date
+    # Required Internal Columns
     RV_COLS = ["Re-validation Date", "Execution Date", "Trip ID", "User/Driver Number", "User/Driver ID", "Suspension Reason", "Executed By", "Re-validation Status", "Remarks"]
     rv_df = load_data_cached("revalidation", RV_COLS)
     
@@ -219,53 +219,72 @@ elif page == "Suspension Re-Validation":
     if up:
         if 'temp_rv_data' not in st.session_state:
             try:
-                # Excel/CSV load kora
+                # Load Excel
                 raw_data = pd.read_excel(up) if up.name.endswith('xlsx') else pd.read_csv(up)
                 
-                # Prothomei shob column empty initialize kora jate 'None' na ashe
+                # Case-Insensitive Mapping Logic (Headers space ba capital letter issue fix korbe)
+                raw_data.columns = [str(c).strip().lower() for c in raw_data.columns]
+                
+                # Prothomei ekta blank template toiri kora
                 uploaded_data = pd.DataFrame(columns=RV_COLS)
                 
-                # Excel theke data mapping (User-er Excel column name onujayi match kora)
-                # Jekhane match pabe na shekhane empty string thakbe
-                uploaded_data["Execution Date"] = raw_data.get("Execution Date", "")
-                uploaded_data["Trip ID"] = raw_data.get("Trip ID", "")
-                uploaded_data["User/Driver Number"] = raw_data.get("User/Driver Number", "")
-                uploaded_data["User/Driver ID"] = raw_data.get("User/Driver ID", "")
-                uploaded_data["Suspension Reason"] = raw_data.get("Suspension Reason", "")
-                uploaded_data["Executed By"] = raw_data.get("Executed By", "")
+                # Data pull korbe logic (Lower case mapping)
+                mapping = {
+                    "Execution Date": "execution date",
+                    "Trip ID": "trip id",
+                    "User/Driver Number": "user/driver number",
+                    "User/Driver ID": "user/driver id",
+                    "Suspension Reason": "suspension reason",
+                    "Executed By": "executed by"
+                }
+
+                # Excel theke data mapping kora
+                temp_rows = []
+                for _, row in raw_data.iterrows():
+                    new_row = {col: "" for col in RV_COLS} # Default empty
+                    new_row["Re-validation Date"] = today_str # Aajker date
+                    new_row["Re-validation Status"] = "Valid"
+                    
+                    # Excel-er header match korle data nibe
+                    for target_col, excel_col in mapping.items():
+                        if excel_col in raw_data.columns:
+                            new_row[target_col] = row[excel_col]
+                    
+                    temp_rows.append(new_row)
                 
-                # Auto-filled data
-                uploaded_data["Re-validation Date"] = today_str # Aajker date
-                uploaded_data["Re-validation Status"] = "Valid"
-                uploaded_data["Remarks"] = ""
+                st.session_state['temp_rv_data'] = pd.DataFrame(temp_rows)
                 
-                st.session_state['temp_rv_data'] = uploaded_data
             except Exception as e:
-                st.error(f"Mapping Error: Excel column name check korun. Error: {e}")
+                st.error(f"Error processing Excel: {e}")
 
         if 'temp_rv_data' in st.session_state:
             temp_df = st.session_state['temp_rv_data']
-            st.subheader("Edit Uploaded Data")
+            st.subheader("📝 Edit Uploaded Data before Final Submit")
             
             # Interactive Editor
             edited_df = st.data_editor(
                 temp_df,
                 column_config={
                     "Re-validation Status": st.column_config.SelectboxColumn("Status", options=["Valid", "Invalid"], required=True),
-                    "Remarks": st.column_config.TextColumn("Remarks (Only if Invalid)")
+                    "Remarks": st.column_config.TextColumn("Remarks")
                 },
                 disabled=["Re-validation Date", "Execution Date", "Trip ID", "User/Driver Number", "User/Driver ID", "Suspension Reason", "Executed By"],
                 hide_index=True,
                 use_container_width=True
             )
 
-            if st.button("Final Submission", type="primary"):
+            if st.button("Final Submission ✅", type="primary"):
+                # Global store-e save kora
                 final_save = pd.concat([rv_df, edited_df], ignore_index=True)
                 save_data(final_save, "revalidation")
                 del st.session_state['temp_rv_data']
-                st.success("Data successfully validated and saved!")
+                st.success("Successfully Validated!")
                 st.rerun()
 
     st.divider()
+    st.subheader("Validation History")
+    # History theke 'pending' ba 'None' row gulo filter kora (clean view)
+    clean_history = rv_df[rv_df["Trip ID"] != "pending"].dropna(subset=["Trip ID"])
+    st.dataframe(clean_history, use_container_width=True)
     st.subheader("Validation History")
     st.dataframe(rv_df, use_container_width=True)
