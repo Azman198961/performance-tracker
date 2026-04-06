@@ -112,21 +112,20 @@ if page == "Dashboard":
     if not rv_df.empty:
         st.subheader("📥 Export Suspension Report")
         csv = rv_df.to_csv(index=False).encode('utf-8')
-        st.download_button("Download Weekly Report", csv, "Suspension_Report.csv", "text/csv")
+        st.download_button("Download Report", csv, "Suspension_Report.csv", "text/csv")
 
 # --- 7. PAGE: PLAN DAILY TASKS ---
 elif page == "Plan Daily Tasks":
     st.header("📝 Morning Planning")
     df = load_data_cached("tasks", COLS["tasks"])
     with st.form("p_form", clear_on_submit=True):
-        # "Adhoc" category added here
         cat = st.selectbox("Category", ["QA Audit", "Rental Driver Onboarding", "Agent Training", "Initiatives", "User & Driver Suspension Re-Validation", "Adhoc"])
         name = st.text_input("Task Name")
         ph = st.number_input("Planned Hours", 0.5, 12.0, 1.0)
         if st.form_submit_button("Add to Plan"):
             new = pd.DataFrame([[today_str, cat, name, ph, 0.0, "Planned", ""]], columns=COLS["tasks"])
             save_data(pd.concat([df, new]), "tasks")
-            st.success(f"Task '{name}' added under {cat}!")
+            st.success(f"Task added under {cat}!")
             st.rerun()
     
     st.subheader("Today's Plan")
