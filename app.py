@@ -3,10 +3,33 @@ import pandas as pd
 from datetime import datetime
 import os
 
+# --- ACCESS CONTROL (Authorized Emails) ---
+# Eikhane apni jader ke access dite chan tader email list korun
+AUTHORIZED_USERS = ["asikul.islam@pathao.com", "jahidul.saimon@pathao.com", "lira@pathao.com"]
+
 # Page Configuration
 st.set_page_config(page_title="Performance Pulse Tracker", layout="wide")
 
-# Columns definition to keep everything synced
+# --- LOGIN LOGIC ---
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+
+if not st.session_state['logged_in']:
+    st.title("🔐 Secure Access")
+    user_email = st.text_input("Enter your authorized email to access the tracker:")
+    
+    if st.button("Login"):
+        if user_email.lower() in [email.lower() for email in AUTHORIZED_USERS]:
+            st.session_state['logged_in'] = True
+            st.success("Access Granted!")
+            st.rerun()
+        else:
+            st.error("Access Denied! This email is not authorized.")
+    st.stop() # Login na howa porjonto nicher code execute hobe na
+
+# --- REST OF THE CODE (Only visible after login) ---
+
+# Columns definition
 COLS = {
     "tasks": ["Date", "Task Name", "Description", "Planned Hours", "Actual Hours", "Manager Approved", "Status"],
     "qa": ["Date", "Channel", "Audit Count", "Critical Errors", "Accuracy %", "Hours Spent"],
@@ -30,6 +53,10 @@ def load_data(filename):
 
 # Sidebar
 st.sidebar.title("Navigation")
+if st.sidebar.button("Logout"):
+    st.session_state['logged_in'] = False
+    st.rerun()
+
 page = st.sidebar.radio("Go to:", ["Daily Tasks", "QA Details", "Driver Onboarding", "Training", "Initiatives", "Dashboard"])
 
 # --- PAGE 1: DAILY TASKS ---
@@ -67,11 +94,10 @@ elif page == "QA Details":
             st.success("Logged!")
     st.dataframe(df)
 
-# --- PAGE 3: DRIVER ONBOARDING (Update & Edit Enabled) ---
+# --- PAGE 3: DRIVER ONBOARDING ---
 elif page == "Driver Onboarding":
     st.header("🚗 Driver Onboarding & Management")
     df = load_data("drivers")
-    
     tab1, tab2 = st.tabs(["Add New Driver", "Update Existing Driver"])
     
     with tab1:
@@ -93,7 +119,6 @@ elif page == "Driver Onboarding":
         if not df.empty:
             driver_to_edit = st.selectbox("Select Driver to Update", df['Name'].tolist())
             idx = df[df['Name'] == driver_to_edit].index[0]
-            
             with st.form("edit_form"):
                 e_p = st.text_input("Phone", value=df.at[idx, 'Phone'])
                 e_ds = st.selectbox("Doc Status", ["pending", "partially pending", "submitted"], 
@@ -103,23 +128,18 @@ elif page == "Driver Onboarding":
                 e_cs = st.selectbox("Call Status", ["Call received", "DNP"],
                                    index=["Call received", "DNP"].index(df.at[idx, 'Call Status']))
                 e_f = st.checkbox("First Trip?", value=df.at[idx, 'First Trip'])
-                
                 if st.form_submit_button("Update Details"):
-                    df.at[idx, 'Phone'] = e_p
-                    df.at[idx, 'Doc Status'] = e_ds
-                    df.at[idx, 'Acc Status'] = e_as
-                    df.at[idx, 'Call Status'] = e_cs
+                    df.at[idx, 'Phone'] = e_p; df.at[idx, 'Doc Status'] = e_ds
+                    df.at[idx, 'Acc Status'] = e_as; df.at[idx, 'Call Status'] = e_cs
                     df.at[idx, 'First Trip'] = e_f
-                    save_data(df, "drivers")
-                    st.success("Updated Successfully!")
-                    st.rerun()
+                    save_data(df, "drivers"); st.success("Updated Successfully!"); st.rerun()
     st.dataframe(df)
 
 # --- PAGE 6: DASHBOARD ---
 elif page == "Dashboard":
     st.header("📊 Performance Dashboard")
     t_df = load_data("tasks"); q_df = load_data("qa")
-    d_df = load_data("drivers"); tr_df = load_data("train")
+    d_df = load_data("drivers")
 
     st.subheader("📅 Date Filters")
     f_type = st.radio("View:", ["Daily", "Weekly", "Monthly", "All Time"], horizontal=True)
@@ -134,36 +154,27 @@ elif page == "Dashboard":
         sw = today - pd.Timedelta(days=today.weekday())
         t_df = t_df[t_df['Date'] >= sw]; q_df = q_df[q_df['Date'] >= sw]
 
-    # Metrics Calculations
     t_completed = len(t_df[t_df['Status']=='Completed']) if not t_df.empty else 0
     t_planned = len(t_df[t_df['Status']=='Planned']) if not t_df.empty else 0
     q_count = q_df['Audit Count'].sum() if not q_df.empty else 0
     q_hrs = q_df['Hours Spent'].sum() if not q_df.empty else 0
-    
-    # Driver logic: Only count Active ones
     d_onboarded = len(d_df[d_df['Acc Status'] == 'active']) if not d_df.empty else 0
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.metric("Tasks Done", t_completed)
-        st.caption(f"Planned: {t_planned}") # Breakdown
+        st.caption(f"Planned: {t_planned}")
     c2.metric("Audits Done", int(q_count))
     c3.metric("QA Hours", f"{q_hrs} hrs")
     c4.metric("Driver Onboarded", d_onboarded)
-# --- Task List Breakdown (New Update) ---
+
+    st.divider()
     st.write("### ✅ Tasks Completed List")
     if not t_df.empty:
-        # Shudhu Completed task gulo filter kore nam gulo nibe
         completed_tasks_list = t_df[t_df['Status'] == 'Completed']['Task Name'].tolist()
-        
-        if completed_tasks_list:
-            for i, task in enumerate(completed_tasks_list, 1):
-                st.write(f"{i}. {task}")
-        else:
-            st.info("No tasks completed yet for this period.")
-    else:
-        st.info("No task data found.")
+        for i, task in enumerate(completed_tasks_list, 1):
+            st.write(f"{i}. {task}")
+    
     st.divider()
-    # Excel Download logic
     if st.button("Generate Excel Report"):
-        st.write("File ready for download (Logic simulated)")
+        st.write("Excel report download available in local version.")
