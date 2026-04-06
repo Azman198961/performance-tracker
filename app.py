@@ -206,58 +206,66 @@ elif page == "QA Details":
             st.rerun()
     st.dataframe(df)
 
-# --- PAGE: SUSPENSION RE-VALIDATION (BULK UPDATE) ---
+# --- PAGE: SUSPENSION RE-VALIDATION ---
 elif page == "Suspension Re-Validation":
     st.header("🔍 User & Driver Suspension Re-Validation")
     
-    # Required Columns for this page
-    RV_COLS = ["Execution Date", "Trip ID", "User/Driver Number", "User/Driver ID", "Suspension Reason", "Executed By", "Re-validation Status", "Remarks"]
-    
+    # Updated Columns with Upload Date
+    RV_COLS = ["Re-validation Date", "Execution Date", "Trip ID", "User/Driver Number", "User/Driver ID", "Suspension Reason", "Executed By", "Re-validation Status", "Remarks"]
     rv_df = load_data_cached("revalidation", RV_COLS)
     
     up = st.file_uploader("Upload Excel File", type=["xlsx", "csv"])
     
     if up:
-        # Excel data load kora
         if 'temp_rv_data' not in st.session_state:
             try:
-                uploaded_data = pd.read_excel(up) if up.name.endswith('xlsx') else pd.read_csv(up)
-                # Notun columns gulo initialize kora
+                # Excel/CSV load kora
+                raw_data = pd.read_excel(up) if up.name.endswith('xlsx') else pd.read_csv(up)
+                
+                # Prothomei shob column empty initialize kora jate 'None' na ashe
+                uploaded_data = pd.DataFrame(columns=RV_COLS)
+                
+                # Excel theke data mapping (User-er Excel column name onujayi match kora)
+                # Jekhane match pabe na shekhane empty string thakbe
+                uploaded_data["Execution Date"] = raw_data.get("Execution Date", "")
+                uploaded_data["Trip ID"] = raw_data.get("Trip ID", "")
+                uploaded_data["User/Driver Number"] = raw_data.get("User/Driver Number", "")
+                uploaded_data["User/Driver ID"] = raw_data.get("User/Driver ID", "")
+                uploaded_data["Suspension Reason"] = raw_data.get("Suspension Reason", "")
+                uploaded_data["Executed By"] = raw_data.get("Executed By", "")
+                
+                # Auto-filled data
+                uploaded_data["Re-validation Date"] = today_str # Aajker date
                 uploaded_data["Re-validation Status"] = "Valid"
                 uploaded_data["Remarks"] = ""
+                
                 st.session_state['temp_rv_data'] = uploaded_data
             except Exception as e:
-                st.error(f"Error loading file: {e}")
+                st.error(f"Mapping Error: Excel column name check korun. Error: {e}")
 
         if 'temp_rv_data' in st.session_state:
             temp_df = st.session_state['temp_rv_data']
-            
             st.subheader("Edit Uploaded Data")
-            # Interactive Table-er moto editable input
+            
+            # Interactive Editor
             edited_df = st.data_editor(
                 temp_df,
                 column_config={
-                    "Re-validation Status": st.column_config.SelectboxColumn(
-                        "Status",
-                        options=["Valid", "Invalid"],
-                        required=True,
-                    ),
-                    "Remarks": st.column_config.TextColumn("Remarks (Required for Invalid)")
+                    "Re-validation Status": st.column_config.SelectboxColumn("Status", options=["Valid", "Invalid"], required=True),
+                    "Remarks": st.column_config.TextColumn("Remarks (Only if Invalid)")
                 },
-                disabled=["Execution Date", "Trip ID", "User/Driver Number", "User/Driver ID", "Suspension Reason", "Executed By"],
+                disabled=["Re-validation Date", "Execution Date", "Trip ID", "User/Driver Number", "User/Driver ID", "Suspension Reason", "Executed By"],
                 hide_index=True,
                 use_container_width=True
             )
 
             if st.button("Final Submission", type="primary"):
-                # Global file-er sathe merge kora
                 final_save = pd.concat([rv_df, edited_df], ignore_index=True)
                 save_data(final_save, "revalidation")
-                del st.session_state['temp_rv_data'] # Cache clear
-                st.success(f"Successfully validated {len(edited_df)} records!")
+                del st.session_state['temp_rv_data']
+                st.success("Data successfully validated and saved!")
                 st.rerun()
 
-    # History Table
     st.divider()
     st.subheader("Validation History")
     st.dataframe(rv_df, use_container_width=True)
