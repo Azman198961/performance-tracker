@@ -38,18 +38,24 @@ if page == "Daily Tasks":
             st.success("Saved!")
     st.dataframe(df)
 
-# --- PAGE 2: QA DETAILS ---
+# --- PAGE 2: QA DETAILS (Updated) ---
 elif page == "QA Details":
-    st.header("🔍 QA Audit")
-    cols = ["Date", "Channel", "Audits", "Errors"]
+    st.header("🔍 QA Audit Logs")
+    cols = ["Date", "Channel", "Audit Count", "Critical Errors", "Accuracy %", "Hours Spent"]
     df = load_data("qa", cols)
+    
     with st.form("qa_form"):
-        ch = st.text_input("Channel")
-        aud = st.number_input("Count", 1)
-        err = st.number_input("Errors", 0)
-        if st.form_submit_button("Log"):
-            new_row = pd.DataFrame([[datetime.now().date(), ch, aud, err]], columns=cols)
-            df = pd.concat([df, new_row], ignore_index=True)
+        channel = st.selectbox("Channel", ["Email", "Chat", "Call", "Social Media"])
+        count = st.number_input("Audit Count", min_value=1)
+        errors = st.number_input("Critical Errors", min_value=0)
+        
+        # Calculation: 15 mins per audit
+        hours_spent = (count * 15) / 60 
+        accuracy = ((count - errors) / count) * 100
+        
+        if st.form_submit_button("Log QA"):
+            new_data = pd.DataFrame([[datetime.now().date(), channel, count, errors, f"{accuracy}%", hours_spent]], columns=cols)
+            df = pd.concat([df, new_data], ignore_index=True)
             save_data(df, "qa")
     st.dataframe(df)
 
@@ -97,13 +103,80 @@ elif page == "Initiatives":
             save_data(df, "init")
     st.dataframe(df)
 
-# --- PAGE 6: DASHBOARD ---
+# --- PAGE 6: DASHBOARD & EXPORT (Full Update) ---
 elif page == "Dashboard":
-    st.header("📊 Dashboard")
-    t = load_data("tasks", []); q = load_data("qa", []); d = load_data("drivers", [])
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Tasks Done", len(t[t['Status']=='Completed']) if not t.empty else 0)
-    c2.metric("Total Audits", q['Audits'].sum() if not q.empty else 0)
-    c3.metric("Drivers", len(d) if not d.empty else 0)
-    if st.button("Export Excel"):
-        st.write("Excel report ready (Demo logic)")
+    st.header("📊 Performance Analytics Dashboard")
+    
+    # Load all data
+    tasks_df = load_data("tasks", ["Date", "Task Name", "Description", "Planned Hours", "Actual Hours", "Manager Approved", "Status"])
+    qa_df = load_data("qa", ["Date", "Channel", "Audit Count", "Critical Errors", "Accuracy %", "Hours Spent"])
+    drivers_df = load_data("drivers", ["Name", "Number", "City", "Interested?", "Docs Status", "Account Status", "First Trip"])
+    training_df = load_data("train", ["Date", "Agent", "Topic", "Pre", "Post"])
+
+    # Date Filter Logic
+    st.subheader("📅 Filter Report")
+    filter_type = st.radio("Select View:", ["Daily", "Weekly", "Monthly", "All Time"], horizontal=True)
+    
+    # Convert Date column to datetime for filtering
+    if not tasks_df.empty:
+        tasks_df['Date'] = pd.to_datetime(tasks_df['Date']).dt.date
+    if not qa_df.empty:
+        qa_df['Date'] = pd.to_datetime(qa_df['Date']).dt.date
+
+    today = datetime.now().date()
+    
+    # Filtering Data
+    if filter_type == "Daily":
+        tasks_df = tasks_df[tasks_df['Date'] == today]
+        qa_df = qa_df[qa_df['Date'] == today]
+    elif filter_type == "Weekly":
+        start_of_week = today - pd.Timedelta(days=today.weekday())
+        tasks_df = tasks_df[tasks_df['Date'] >= start_of_week]
+        qa_df = qa_df[qa_df['Date'] >= start_of_week]
+    elif filter_type == "Monthly":
+        tasks_df = tasks_df[pd.to_datetime(tasks_df['Date']).dt.month == today.month]
+        qa_df = qa_df[pd.to_datetime(qa_df['Date']).dt.month == today.month]
+
+    # Metrics Row 1
+    c1, c2, c3, c4 = st.columns(4)
+    
+    total_tasks = len(tasks_df[tasks_df['Status'] == 'Completed']) if not tasks_df.empty else 0
+    total_audits = int(qa_df['Audit Count'].sum()) if not qa_df.empty else 0
+    # QA Hours calculation (15 mins per audit)
+    total_qa_hours = qa_df['Hours Spent'].sum() if not qa_df.empty else 0
+    total_task_hours = tasks_df['Actual Hours'].sum() if not tasks_df.empty else 0
+
+    c1.metric("Tasks Completed", total_tasks)
+    c2.metric("Total Audits Done", total_audits)
+    c3.metric("QA Hours (15m/ea)", f"{total_qa_hours} hrs")
+    c4.metric("Onboarded Drivers", len(drivers_df) if not drivers_df.empty else 0)
+
+    # Metrics Row 2
+    st.divider()
+    c5, c6 = st.columns(2)
+    with c5:
+        st.write("### 🕒 Total Productivity")
+        st.info(f"Total Combined Work Hours: **{total_qa_hours + total_task_hours} hrs**")
+    
+    with c6:
+        st.write("### 📈 Training Effectiveness")
+        if not training_df.empty:
+            avg_improvement = (pd.to_numeric(training_df['Post']) - pd.to_numeric(training_df['Pre'])).mean()
+            st.success(f"Average Performance Jump: **{avg_improvement:.2f}%**")
+        else:
+            st.write("No training data available.")
+
+    # Export Section
+    st.divider()
+    st.subheader("📥 Download Performance Report")
+    
+    if st.button("Generate Excel Report"):
+        report_name = f"PIP_Report_{filter_type}_{today}.xlsx"
+        with pd.ExcelWriter(report_name) as writer:
+            tasks_df.to_excel(writer, sheet_name="Tasks", index=False)
+            qa_df.to_excel(writer, sheet_name="QA_Audits", index=False)
+            drivers_df.to_excel(writer, sheet_name="Drivers", index=False)
+            training_df.to_excel(writer, sheet_name="Training", index=False)
+        
+        with open(report_name, "rb") as f:
+            st.download_button("Click here to Download", f, file_name=report_name)
