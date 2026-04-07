@@ -41,7 +41,10 @@ def get_worksheet(name):
         return None
 
 # --- 3. LOGIN LOGIC ---
-USER_CREDENTIALS = {"azman@pathao.com": "pathao123", "asikul.islam@pathao.com": "pathao456"}
+USER_CREDENTIALS = {"asikul.islam@pathao.com": "Win@1234",
+    "jahidul.saimon@pathao.com": "saimon9090",
+    "lira@pathao.com": "lira1234"
+}
 if 'logged_in' not in st.session_state: 
     st.session_state['logged_in'] = False
 
