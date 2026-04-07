@@ -195,17 +195,82 @@ elif page == "QA Details":
                 ws.append_row([today_str, channel, cnt, err, acc, hrs])
                 st.success("QA Logged!")
 
+# --- 9. PAGE: DRIVER ONBOARDING (UPDATED) ---
 elif page == "Driver Onboarding":
-    st.header("🚗 Driver Management")
-    with st.form("dr", clear_on_submit=True):
-        n = st.text_input("Name")
-        p = st.text_input("Phone")
-        as_stat = st.selectbox("Status", ["pending", "active"])
-        if st.form_submit_button("Save"):
-            ws = get_ws("drivers")
-            if ws:
-                ws.append_row([today_str, n, p, "Dhaka", "Yes", "submitted", as_stat, "Done", "No"])
-                st.success("Saved!")
+    st.header("🚗 Driver Onboarding & Management")
+    ws = get_ws("drivers")
+    
+    # --- PART 1: NEW SUBMISSION ---
+    st.subheader("➕ Step 1: New Driver Entry")
+    with st.form("dr_new", clear_on_submit=True):
+        c1, c2, c3 = st.columns(3)
+        n = c1.text_input("Name")
+        p = c2.text_input("Phone Number")
+        city = c3.selectbox("City", ["Dhaka", "Chittagong", "Sylhet", "Gazipur", "Narayanganj"])
+        
+        c4, c5, c6 = st.columns(3)
+        interested = c4.selectbox("Interested?", ["Yes", "No", "Maybe"])
+        doc_stat = c5.selectbox("Doc Status", ["Pending", "Partially Submitted", "Submitted"])
+        acc_stat = c6.selectbox("Acc Status", ["Inactive", "Active"])
+        
+        if st.form_submit_button("Submit New Driver"):
+            if ws and n and p:
+                # [Date, Name, Phone, City, Interested, Doc Status, Acc Status, First Trip]
+                ws.append_row([today_str, n, p, city, interested, doc_stat, acc_stat, "No"])
+                st.success(f"✅ {n} added to the list!")
+                st.rerun()
+            else:
+                st.warning("Please fill Name and Phone.")
+
+    st.divider()
+
+    # --- PART 2: UPDATE ENTRIES ---
+    st.subheader("🔄 Step 2: Update Driver Status")
+    if ws:
+        data = ws.get_all_records()
+        if data:
+            df = pd.DataFrame(data)
+            df.columns = df.columns.str.strip()
+            
+            # শুধুমাত্র 'First Trip' সম্পন্ন হয়নি এমন ড্রাইভারদের দেখাবে আপডেটের জন্য (অথবা সব)
+            pending_drivers = df[df['First Trip'] != "Yes"]
+            
+            if not pending_drivers.empty:
+                for idx, row in pending_drivers.iterrows():
+                    # Google Sheet row index (Header + 0-index offset)
+                    row_num = idx + 2
+                    
+                    with st.expander(f"Update: {row['Name']} ({row['Phone']})"):
+                        u_c1, u_c2, u_c3 = st.columns(3)
+                        
+                        # ১. Doc Status Update
+                        new_doc = u_c1.selectbox("Update Doc Status", 
+                                               ["Pending", "Partially Submitted", "Submitted"], 
+                                               index=["Pending", "Partially Submitted", "Submitted"].index(row['Doc Status']) if row['Doc Status'] in ["Pending", "Partially Submitted", "Submitted"] else 0,
+                                               key=f"doc_{idx}")
+                        
+                        # ২. Acc Status Update
+                        new_acc = u_c2.selectbox("Update Acc Status", 
+                                               ["Inactive", "Active"], 
+                                               index=0 if row['Acc Status'] == "Inactive" else 1,
+                                               key=f"acc_{idx}")
+                        
+                        # ৩. First Trip Completion
+                        first_trip = u_c3.checkbox("First Trip Completed?", value=False, key=f"trip_{idx}")
+                        
+                        if st.button("Update Entry", key=f"btn_{idx}"):
+                            # কলাম ইনডেক্স অনুযায়ী আপডেট (Doc Status=6, Acc Status=7, First Trip=8)
+                            ws.update_cell(row_num, 6, new_doc)
+                            ws.update_cell(row_num, 7, new_acc)
+                            if first_trip:
+                                ws.update_cell(row_num, 8, "Yes")
+                            
+                            st.success(f"Updated {row['Name']}!")
+                            st.rerun()
+            else:
+                st.info("No pending updates for drivers.")
+        else:
+            st.info("No driver records found.")
 
 elif page == "Suspension Re-Validation":
     st.header("⚠️ Suspension Re-Validation")
