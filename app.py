@@ -66,47 +66,40 @@ if st.sidebar.button("Logout"):
 # --- 5. PAGE: DASHBOARD ---
 if page == "Dashboard":
     st.header("📊 Performance Dashboard")
-    
     ws_tasks = get_ws("tasks")
-    ws_qa = get_ws("qa")
-    ws_drivers = get_ws("drivers")
-
-    # Load Data
-    t_df = pd.DataFrame(ws_tasks.get_all_records()) if ws_tasks else pd.DataFrame()
-    q_df = pd.DataFrame(ws_qa.get_all_records()) if ws_qa else pd.DataFrame()
-    d_df = pd.DataFrame(ws_drivers.get_all_records()) if ws_drivers else pd.DataFrame()
-
-    view = st.radio("Timeframe:", ["Daily", "Weekly", "Monthly", "All Time"], horizontal=True)
     
-    # Filter Logic
-    for df in [t_df, q_df, d_df]:
-        if not df.empty and 'Date' in df.columns:
-            df['Date'] = pd.to_datetime(df['Date']).dt.date
+    if ws_tasks:
+        data = ws_tasks.get_all_records()
+        if data:
+            t_df = pd.DataFrame(data)
+            t_df.columns = t_df.columns.str.strip() # কলামের নামের স্পেস ক্লিন করা
+            
+            if 'Date' in t_df.columns:
+                t_df['Date'] = pd.to_datetime(t_df['Date']).dt.date
+                view = st.radio("Timeframe:", ["Daily", "Weekly", "All Time"], horizontal=True)
+                
+                if view == "Daily":
+                    t_f = t_df[t_df['Date'] == today]
+                elif view == "Weekly":
+                    sw = today - timedelta(days=today.weekday())
+                    t_f = t_df[t_df['Date'] >= sw]
+                else:
+                    t_f = t_df
 
-    if view == "Daily":
-        t_f = t_df[t_df['Date'] == today]
-        q_f = q_df[q_df['Date'] == today]
-        d_f = d_df[d_df['Date'] == today]
-    elif view == "Weekly":
-        sw = today - timedelta(days=today.weekday())
-        t_f, q_f, d_f = t_df[t_df['Date'] >= sw], q_df[q_df['Date'] >= sw], d_df[d_df['Date'] >= sw]
-    else:
-        t_f, q_f, d_f = t_df, q_df, d_df
-
-    # Metrics
-    m1, m2, m3, m4 = st.columns(4)
-    audits = q_f['Audit Count'].sum() if not q_f.empty else 0
-    drivers = len(d_f[d_f['Acc Status'] == 'active']) if not d_f.empty else 0
-    plan_h = t_f['Planned Hours'].sum() if not t_f.empty else 0
-    act_h = t_f['Actual Hours'].sum() if not t_f.empty else 0
-    
-    m1.metric("Audits Done", int(audits))
-    m2.metric("Drivers Active", int(drivers))
-    m3.metric("Actual Hours", f"{act_h:.1f}h")
-    m4.metric("Efficiency %", f"{(act_h/plan_h*100):.1f}%" if plan_h > 0 else "0%")
-
-    st.subheader("📋 Task Breakdown")
-    st.dataframe(t_f, use_container_width=True)
+                # Metrics
+                plan_h = pd.to_numeric(t_f['Planned Hours'], errors='coerce').sum()
+                act_h = pd.to_numeric(t_f['Actual Hours'], errors='coerce').sum()
+                
+                m1, m2 = st.columns(2)
+                m1.metric("Total Planned Hours", f"{plan_h:.1f}h")
+                m2.metric("Efficiency %", f"{(act_h/plan_h*100):.1f}%" if plan_h > 0 else "0%")
+                
+                st.subheader("📋 Task Records")
+                st.dataframe(t_f, use_container_width=True)
+            else:
+                st.error("Sheet-এ 'Date' কলাম পাওয়া যায়নি।")
+        else:
+            st.info("ড্যাশবোর্ডে দেখানোর মতো কোনো ডেটা নেই।")
 
 # --- 6. PAGE: PLAN DAILY TASKS ---
 elif page == "Plan Daily Tasks":
@@ -126,25 +119,31 @@ elif page == "Update Task Status (EOD)":
     st.header("✅ End of Day Update")
     ws = get_ws("tasks")
     if ws:
-        df = pd.DataFrame(ws.get_all_records())
-        # Filter for today's planned tasks
-        mask = (df['Date'] == today_str) & (df['Status'] == "Planned")
-        pending = df[mask]
-        
-        if not pending.empty:
-            for idx, row in pending.iterrows():
-                with st.expander(f"Update: {row['Task Name']}"):
-                    # Google Sheet is 1-indexed, and header is row 1, so row idx is idx+2
-                    row_num = idx + 2 
-                    ah = st.number_input("Actual Hours", 0.0, 15.0, float(row['Planned Hours']), key=f"h{idx}")
-                    stat = st.selectbox("Status", ["Completed", "Incompleted"], key=f"s{idx}")
-                    if st.button("Confirm Update", key=f"b{idx}"):
-                        ws.update_cell(row_num, 5, ah) # Col 5 is Actual Hours
-                        ws.update_cell(row_num, 6, stat) # Col 6 is Status
-                        st.success("Updated!")
-                        st.rerun()
-        else:
-            st.info("No pending tasks for today.")
+        data = ws.get_all_records()
+        if data:
+            df = pd.DataFrame(data)
+            df.columns = df.columns.str.strip() # KeyError থেকে বাঁচতে কলাম ক্লিন করা
+            
+            if 'Date' in df.columns and 'Status' in df.columns:
+                # আজকের 'Planned' টাস্কগুলো খুঁজে বের করা
+                mask = (df['Date'].astype(str) == today_str) & (df['Status'] == "Planned")
+                pending = df[mask]
+                
+                if not pending.empty:
+                    for idx, row in pending.iterrows():
+                        with st.expander(f"Update: {row['Task Name']}"):
+                            row_num = idx + 2 
+                            ah = st.number_input("Actual Hours", 0.0, 15.0, float(row['Planned Hours']), key=f"h{idx}")
+                            stat = st.selectbox("Status", ["Completed", "Incompleted"], key=f"s{idx}")
+                            if st.button("Confirm Update", key=f"b{idx}"):
+                                ws.update_cell(row_num, 5, ah) # Col 5 = Actual Hours
+                                ws.update_cell(row_num, 6, stat) # Col 6 = Status
+                                st.success("Updated Successfully!")
+                                st.rerun()
+                else:
+                    st.info("আজকের জন্য কোনো পেন্ডিং টাস্ক নেই।")
+            else:
+                st.error("Sheet-এ 'Date' অথবা 'Status' কলাম পাওয়া যায়নি।")
 
 # --- 8. PAGE: QA DETAILS ---
 elif page == "QA Details":
@@ -156,7 +155,7 @@ elif page == "QA Details":
             ws = get_ws("qa")
             if ws and cnt > 0:
                 acc = f"{((cnt-err)/cnt)*100:.1f}%"
-                hrs = (cnt * 15) / 60 # Assume 15 min per audit
+                hrs = (cnt * 15) / 60 
                 ws.append_row([today_str, "General", cnt, err, acc, hrs])
                 st.success("QA Saved!")
 
@@ -174,17 +173,19 @@ elif page == "Driver Onboarding":
                 ws.append_row([today_str, n, p, city, "Yes", "submitted", as_stat, "Call done", "No"])
                 st.success("Driver Logged!")
 
-# --- 10. PAGE: SUSPENSION ---
+# --- 10. PAGE: SUSPENSION RE-VALIDATION ---
 elif page == "Suspension Re-Validation":
     st.header("⚠️ Suspension Re-Validation")
     up = st.file_uploader("Upload Excel/CSV", type=["xlsx", "csv"])
     if up:
-        raw = pd.read_excel(up) if up.name.endswith('xlsx') else pd.read_csv(up)
-        st.write("Preview:", raw.head(3))
-        if st.button("Push All to Google Sheet"):
-            ws = get_ws("revalidation")
-            if ws:
-                # Convert dataframe to list of lists for gspread
-                data_to_push = raw.values.tolist()
-                ws.append_rows(data_to_push)
-                st.success(f"Successfully pushed {len(data_to_push)} rows!")
+        try:
+            raw = pd.read_excel(up) if up.name.endswith('xlsx') else pd.read_csv(up)
+            st.write("Preview:", raw.head(3))
+            if st.button("Push All to Google Sheet"):
+                ws = get_ws("revalidation")
+                if ws:
+                    data_to_push = raw.fillna("").values.tolist() # NaN হ্যান্ডেল করা
+                    ws.append_rows(data_to_push)
+                    st.success(f"Successfully pushed {len(data_to_push)} rows!")
+        except Exception as e:
+            st.error(f"File Error: {e}")
