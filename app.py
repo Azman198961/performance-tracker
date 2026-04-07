@@ -12,12 +12,7 @@ today_str = str(today)
 
 # --- 2. HELPER FUNCTIONS ---
 def get_working_days(start_date, end_date):
-    """শুক্রবার, শনিবার এবং সরকারি ছুটি বাদ দিয়ে কার্যদিবস গণনা করে"""
-    govt_holidays = [
-        datetime(2026, 2, 21).date(), # শহীদ দিবস
-        datetime(2026, 3, 26).date(), # স্বাধীনতা দিবস
-        datetime(2026, 4, 14).date(), # পহেলা বৈশাখ
-    ]
+    govt_holidays = [datetime(2026, 2, 21).date(), datetime(2026, 3, 26).date(), datetime(2026, 4, 14).date()]
     all_days = pd.date_range(start=start_date, end=end_date)
     working_days = [d for d in all_days if d.weekday() not in [4, 5] and d.date() not in govt_holidays]
     return len(working_days)
@@ -34,19 +29,15 @@ def get_gspread_client():
         creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         return gspread.authorize(creds)
     except Exception as e:
-        st.error(f"Authentication Error: {e}")
-        return None
+        st.error(f"Authentication Error: {e}"); return None
 
 client = get_gspread_client()
 SHEET_ID = "1nWFF1uLd-Nwsxw7cXIeBDaVxLiC5360dvtHWrSyuoSM"
 
 def get_ws(name):
     if not client: return None
-    try:
-        return client.open_by_key(SHEET_ID).worksheet(name)
-    except Exception as e:
-        st.error(f"Sheet '{name}' Error: {e}")
-        return None
+    try: return client.open_by_key(SHEET_ID).worksheet(name)
+    except Exception as e: st.error(f"Sheet '{name}' Error: {e}"); return None
 
 # --- 4. LOGIN & NAVIGATION ---
 USER_CREDENTIALS = {"asikul.islam@pathao.com": "Win@1234",
@@ -68,7 +59,7 @@ if not st.session_state['logged_in']:
     st.stop()
 
 page = st.sidebar.selectbox("Navigation", 
-    ["Dashboard", "Plan Daily Tasks", "Update Task Status (EOD)", "QA Details", "Driver Onboarding", "Suspension Re-Validation"])
+    ["Dashboard", "Plan Daily Tasks", "Update Task Status (EOD)", "QA Details", "Driver Onboarding", "Agent Training", "Improvement & Initiatives", "Suspension Re-Validation"])
 
 if st.sidebar.button("Logout"):
     st.session_state['logged_in'] = False
@@ -77,61 +68,73 @@ if st.sidebar.button("Logout"):
 # --- 5. PAGE: DASHBOARD ---
 if page == "Dashboard":
     st.header("📊 Performance Dashboard & Targets")
-    
     start_of_week = today - timedelta(days=(today.weekday() + 2) % 7) 
-    start_of_month = today.replace(day=1)
     
-    # লোড ডাটা
-    ws_tasks = get_ws("tasks")
-    ws_drivers = get_ws("drivers")
-    ws_qa = get_ws("qa")
-    
-    t_df = pd.DataFrame(ws_tasks.get_all_records()) if ws_tasks else pd.DataFrame()
-    d_df = pd.DataFrame(ws_drivers.get_all_records()) if ws_drivers else pd.DataFrame()
+    ws_qa = get_ws("qa"); ws_drivers = get_ws("drivers"); ws_training = get_ws("training")
     q_df = pd.DataFrame(ws_qa.get_all_records()) if ws_qa else pd.DataFrame()
+    d_df = pd.DataFrame(ws_drivers.get_all_records()) if ws_drivers else pd.DataFrame()
+    t_df = pd.DataFrame(ws_training.get_all_records()) if ws_training else pd.DataFrame()
 
-    # ডাটা প্রেপারেশন (স্পেস ক্লিন করা ও ডেট ফরম্যাট)
-    for df in [t_df, d_df, q_df]:
-        if not df.empty:
-            df.columns = df.columns.str.strip()
-            df['Date'] = pd.to_datetime(df['Date']).dt.date
-
-    # --- মেট্রিক্স ক্যালকুলেশন ---
-    st.subheader("🎯 Progress vs Targets")
     m1, m2, m3, m4 = st.columns(4)
+    # QA Target (12/day)
+    today_qa = q_df[pd.to_datetime(q_df['Date']).dt.date == today]['Audit Count'].sum() if not q_df.empty else 0
+    m1.metric("Today's QA Audits", f"{int(today_qa)}/12", delta=int(today_qa)-12)
+    
+    # Driver Target (10/week)
+    week_dr = len(d_df[(pd.to_datetime(d_df['Date']).dt.date >= start_of_week) & (d_df['Acc Status'] == 'Active')]) if not d_df.empty else 0
+    m2.metric("Weekly Onboarding", f"{week_dr}/10", delta=week_dr-10)
+    
+    # Training Target (5/week)
+    week_tr = len(t_df[pd.to_datetime(t_df['Date']).dt.date >= start_of_week]) if not t_df.empty else 0
+    m3.metric("Weekly Training", f"{week_tr}/5", delta=week_tr-5)
+    
+    m4.metric("Working Days (Month)", f"{get_working_days(today.replace(day=1), today)} Days")
 
-    # ১. QA Audit (Daily Target: 12) - qa শিট থেকে Audit Count এর যোগফল
-    today_audits = q_df[q_df['Date'] == today]['Audit Count'].sum() if not q_df.empty else 0
-    m1.metric("Today's QA Audits", f"{int(today_audits)}/12", delta=int(today_audits) - 12)
+# --- 6. PAGE: AGENT TRAINING ---
+elif page == "Agent Training":
+    st.header("🎓 Agent Training Management")
+    ws = get_ws("training")
+    
+    tab1, tab2 = st.tabs(["➕ Add New Training", "🔄 Update Post-Training Score"])
+    
+    with tab1:
+        with st.form("new_training", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            a_name = c1.text_input("Agent Name")
+            eid = c2.text_input("Agent EID")
+            chan = st.selectbox("Channel", ["Inbound", "Live Chat", "Email", "Complaint"])
+            topic = st.text_area("Training Topic")
+            pre_score = st.number_input("QA Score Before Training (%)", 0.0, 100.0, 0.0)
+            if st.form_submit_button("Save Training Session"):
+                ws.append_row([today_str, a_name, eid, chan, topic, pre_score, "N/A"])
+                st.success("Training Logged!")
 
-    # ২. Weekly Driver Onboarding (Target: 10/week) - drivers শিট থেকে Acc Status 'Active'
-    week_drivers = len(d_df[(d_df['Date'] >= start_of_week) & (d_df['Acc Status'] == 'Active')]) if not d_df.empty else 0
-    m2.metric("Weekly Onboarding", f"{week_drivers}/10", delta=week_drivers - 10)
+    with tab2:
+        if ws:
+            data = ws.get_all_records()
+            if data:
+                df = pd.DataFrame(data)
+                pending = df[df['Score After'] == "N/A"]
+                for idx, row in pending.iterrows():
+                    with st.expander(f"Update Score: {row['Agent Name']} ({row['Topic']})"):
+                        new_score = st.number_input("QA Score After Training (%)", 0.0, 100.0, key=f"tr_{idx}")
+                        if st.button("Confirm Update", key=f"btn_tr_{idx}"):
+                            ws.update_cell(idx + 2, 7, new_score) # Column 7 is Score After
+                            st.success("Score Updated!"); st.rerun()
 
-    # ৩. Weekly Training (Target: 5/week) - tasks শিট থেকে Category 'Agent Training'
-    week_trainings = len(t_df[(t_df['Date'] >= start_of_week) & (t_df['Task Category'] == 'Agent Training')]) if not t_df.empty else 0
-    m3.metric("Weekly Training", f"{week_trainings}/5", delta=week_trainings - 5)
-
-    # ৪. কাজের দিন (মাসিক)
-    monthly_working_days = get_working_days(start_of_month, today)
-    m4.metric("Working Days (Month)", f"{monthly_working_days} Days")
-
-    st.divider()
-
-    # --- সাপ্তাহিক চেকলিস্ট ---
-    st.subheader("🗓️ Weekly Deliverables Checklist")
-    c1, c2 = st.columns(2)
-    with c1:
-        susp_status = any((t_df['Date'] >= start_of_week) & (t_df['Task Category'] == 'Suspension') & (t_df['Status'] == 'Completed')) if not t_df.empty else False
-        st.checkbox("Suspension Re-validation Report Sharing", value=susp_status, disabled=True)
-        
-        init_status = any((t_df['Date'] >= start_of_week) & (t_df['Task Category'] == 'Initiatives') & (t_df['Status'] == 'Completed')) if not t_df.empty else False
-        st.checkbox("Weekly Performance Initiative", value=init_status, disabled=True)
-    with c2:
-        st.info("**QA Insight:** Identify & report top recurring issues based on weekly audits.")
-        if not q_df.empty:
-            st.write(f"Audits logged this week: {int(q_df[q_df['Date'] >= start_of_week]['Audit Count'].sum())}")
-
+# --- 7. PAGE: IMPROVEMENT & INITIATIVES ---
+elif page == "Improvement & Initiatives":
+    st.header("💡 Process Improvement & Initiatives")
+    with st.form("init_form", clear_on_submit=True):
+        p_name = st.text_input("Proposal Name")
+        desc = st.text_area("Description")
+        impact = st.selectbox("Expected Impact", ["Efficiency Boost", "Quality Improvement", "Cost Reduction", "Agent Satisfaction"])
+        timeline = st.text_input("Possible Timeline (e.g., Next 2 Weeks)")
+        if st.form_submit_button("Submit Initiative"):
+            ws = get_ws("initiatives")
+            if ws:
+                ws.append_row([today_str, p_name, desc, impact, timeline])
+                st.success("Initiative Saved!")
 # --- 6. PAGE: PLAN DAILY TASKS ---
 elif page == "Plan Daily Tasks":
     st.header("📝 Morning Planning")
