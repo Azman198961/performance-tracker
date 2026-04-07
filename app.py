@@ -16,7 +16,10 @@ scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis
 def get_gspread_client():
     try:
         creds_dict = st.secrets["gcp_service_account"]
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+        # app.py te ei line-ti khuje modify korun:
+creds_dict = st.secrets["gcp_service_account"].to_dict() # to_dict() add korun
+creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n") # Fixes the slash issue
+creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         return gspread.authorize(creds)
     except Exception as e:
         st.error(f"Configuration Error: {e}")
