@@ -4,6 +4,11 @@ import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta
 import os
+# DEBUG LINE: Eita diye check korun error kothay
+if "gcp_service_account" not in st.secrets:
+    st.error("Secrets section e 'gcp_service_account' khuje pawa jachche na!")
+else:
+    st.success("Secrets successfully loaded!")
 
 # --- 1. GLOBAL CONFIG & DATE ---
 today = datetime.now().date()
