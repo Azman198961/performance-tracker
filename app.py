@@ -14,13 +14,14 @@ scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis
 
 def get_gspread_client():
     try:
-        # Streamlit Secrets theke data neya
+        # Secrets load kora
         creds_info = st.secrets["gcp_service_account"]
         
-        # AttrDict ke normal dict e convert kora
+        # Convert to regular dictionary
         info = dict(creds_info)
         
-        # Private key formatting fix (InvalidPadding/PEM error dur korar jonno)
+        # CRITICAL FIX: PEM error (InvalidPadding) dur korar jonno niche line-ti proyojon
+        # Eiti multiline key-r newline character gulo thik kore
         info["private_key"] = info["private_key"].replace("\\n", "\n")
         
         creds = Credentials.from_service_account_info(info, scopes=scope)
@@ -28,9 +29,6 @@ def get_gspread_client():
     except Exception as e:
         st.error(f"Configuration Error: {e}")
         return None
-
-client = get_gspread_client()
-SHEET_ID = "1nWFF1uLd-Nwsxw7cXIeBDaVxLiC5360dvtHWrSyuoSM"
 
 def get_worksheet(name):
     if client is None:
