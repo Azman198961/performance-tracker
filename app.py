@@ -64,42 +64,84 @@ if st.sidebar.button("Logout"):
     st.rerun()
 
 # --- 5. PAGE: DASHBOARD ---
-if page == "Dashboard":
-    st.header("📊 Performance Dashboard")
-    ws_tasks = get_ws("tasks")
+elif page == "Dashboard":
+    st.header("📊 Performance Dashboard & Targets")
     
-    if ws_tasks:
-        data = ws_tasks.get_all_records()
-        if data:
-            t_df = pd.DataFrame(data)
-            t_df.columns = t_df.columns.str.strip() # কলামের নামের স্পেস ক্লিন করা
-            
-            if 'Date' in t_df.columns:
-                t_df['Date'] = pd.to_datetime(t_df['Date']).dt.date
-                view = st.radio("Timeframe:", ["Daily", "Weekly", "All Time"], horizontal=True)
-                
-                if view == "Daily":
-                    t_f = t_df[t_df['Date'] == today]
-                elif view == "Weekly":
-                    sw = today - timedelta(days=today.weekday())
-                    t_f = t_df[t_df['Date'] >= sw]
-                else:
-                    t_f = t_df
+    # --- ক্যালকুলেশন পার্ট ---
+    # বর্তমান সপ্তাহের শুরু (Sunday থেকে শুরু ধরলে)
+    start_of_week = today - timedelta(days=(today.weekday() + 1) % 7)
+    # বর্তমান মাসের শুরু
+    start_of_month = today.replace(day=1)
+    
+    # ওয়ার্কিং ডে বের করা
+    weekly_working_days = get_working_days(start_of_week, today)
+    monthly_working_days = get_working_days(start_of_month, today)
 
-                # Metrics
-                plan_h = pd.to_numeric(t_f['Planned Hours'], errors='coerce').sum()
-                act_h = pd.to_numeric(t_f['Actual Hours'], errors='coerce').sum()
-                
-                m1, m2 = st.columns(2)
-                m1.metric("Total Planned Hours", f"{plan_h:.1f}h")
-                m2.metric("Efficiency %", f"{(act_h/plan_h*100):.1f}%" if plan_h > 0 else "0%")
-                
-                st.subheader("📋 Task Records")
-                st.dataframe(t_f, use_container_width=True)
-            else:
-                st.error("Sheet-এ 'Date' কলাম পাওয়া যায়নি।")
-        else:
-            st.info("ড্যাশবোর্ডে দেখানোর মতো কোনো ডেটা নেই।")
+    # --- টার্গেট সেট করা ---
+    targets = {
+        "Daily Tasks": {"target": 12, "unit": "tasks/day"},
+        "Driver Onboarding": {"target": 10, "unit": "drivers/week"},
+        "Training Sessions": {"target": 5, "unit": "sessions/week"},
+        "Suspension Report": {"target": 1, "unit": "report/week"},
+        "Improvement Initiative": {"target": 1, "unit": "initiative/week"}
+    }
+
+    # --- ডাটা লোড করা ---
+    ws_tasks = get_ws("tasks")
+    ws_drivers = get_ws("drivers")
+    
+    t_df = pd.DataFrame(ws_tasks.get_all_records()) if ws_tasks else pd.DataFrame()
+    d_df = pd.DataFrame(ws_drivers.get_all_records()) if ws_drivers else pd.DataFrame()
+
+    # ডাটা ফরম্যাটিং
+    for df in [t_df, d_df]:
+        if not df.empty: 
+            df['Date'] = pd.to_datetime(df['Date']).dt.date
+
+    # --- ডিসপ্লে মেট্রিক্স ---
+    st.subheader("🎯 Key Performance Targets (This Week)")
+    m1, m2, m3, m4 = st.columns(4)
+
+    # ১. টাস্ক কাউন্ট (আজকের)
+    today_tasks = len(t_df[t_df['Date'] == today]) if not t_df.empty else 0
+    m1.metric("Today's Tasks", f"{today_tasks}/12", delta=f"{today_tasks - 12}")
+
+    # ২. ড্রাইভার অনবোর্ডিং (সাপ্তাহিক)
+    week_drivers = len(d_df[d_df['Date'] >= start_of_week]) if not d_df.empty else 0
+    m2.metric("Weekly Onboarding", f"{week_drivers}/10", delta=f"{week_drivers - 10}")
+
+    # ৩. ট্রেনিং সেশন (সাপ্তাহিক)
+    # ধরে নিচ্ছি Task Category 'Agent Training' এ সেভ হয়
+    week_trainings = len(t_df[(t_df['Date'] >= start_of_week) & (t_df['Task Category'] == 'Agent Training')]) if not t_df.empty else 0
+    m3.metric("Weekly Training", f"{week_trainings}/5", delta=f"{week_trainings - 5}")
+
+    # ৪. ওয়ার্কিং ডেস রিমেইনিং
+    m4.metric("Days Worked (Month)", f"{monthly_working_days} Days")
+
+    st.divider()
+
+    # --- স্পেশাল রিপোর্ট চেকলিস্ট ---
+    st.subheader("🗓️ Weekly Deliverables Status")
+    c1, c2 = st.columns(2)
+    
+    with c1:
+        st.info("**Checklist (Weekly):**")
+        # এই লজিকগুলো আপনার টাস্ক লিস্টের স্ট্যাটাস থেকে আসবে
+        suspension_done = any(t_df[(t_df['Date'] >= start_of_week) & (t_df['Task Category'] == 'Suspension')]['Status'] == 'Completed')
+        st.checkbox("Suspension Re-validation Report Sharing", value=suspension_done, disabled=True)
+        
+        initiative_done = any(t_df[(t_df['Date'] >= start_of_week) & (t_df['Task Category'] == 'Initiatives')]['Status'] == 'Completed')
+        st.checkbox("Performance Improvement Initiative", value=initiative_done, disabled=True)
+
+    with c2:
+        st.warning("**QA Insight:**")
+        st.write("Top recurring issues are identified based on QA logs.")
+        # এখানে QA থেকে ডাইনামিক ডেটা দেখাতে পারেন
+        st.button("Review QA Findings for Top Issues")
+
+    st.divider()
+    st.subheader("📋 All Task History")
+    st.dataframe(t_df.sort_values(by='Date', ascending=False), use_container_width=True)
 
 # --- 6. PAGE: PLAN DAILY TASKS ---
 elif page == "Plan Daily Tasks":
