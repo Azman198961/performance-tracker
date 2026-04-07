@@ -9,21 +9,22 @@ today = datetime.now().date()
 today_str = str(today)
 st.set_page_config(page_title="Performance Pulse Tracker", layout="wide")
 
-# --- 2. GOOGLE SHEETS CONNECTION (Fixed for PEM error) ---
+# --- 2. GOOGLE SHEETS CONNECTION (Fixed Syntax & PEM Error) ---
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 
 def get_gspread_client():
     try:
-        # Get secrets and ensure private_key is handled correctly
+        # Streamlit Secrets theke data neya
         creds_info = st.secrets["gcp_service_account"]
         
-        # If the key is read as a string with escaped \n, fix it
-        if isinstance(creds_info, (dict, st.runtime.secrets.AttrDict)):
-            # Convert to regular dict if it's an AttrDict
-            info = dict(creds_info)
-            info["private_key"] = info["private_key"].replace("\\n", "\n")
-            creds = Credentials.from_service_account_info(info, scopes=scope)
-            return gspread.authorize(creds)
+        # AttrDict ke normal dict e convert kora
+        info = dict(creds_info)
+        
+        # Private key formatting fix (InvalidPadding/PEM error dur korar jonno)
+        info["private_key"] = info["private_key"].replace("\\n", "\n")
+        
+        creds = Credentials.from_service_account_info(info, scopes=scope)
+        return gspread.authorize(creds)
     except Exception as e:
         st.error(f"Configuration Error: {e}")
         return None
@@ -32,16 +33,19 @@ client = get_gspread_client()
 SHEET_ID = "1nWFF1uLd-Nwsxw7cXIeBDaVxLiC5360dvtHWrSyuoSM"
 
 def get_worksheet(name):
+    if client is None:
+        return None
     try:
         sh = client.open_by_key(SHEET_ID)
         return sh.worksheet(name)
-    except:
-        st.error(f"Tab '{name}' not found. Please create it in GSheets.")
+    except Exception as e:
+        st.error(f"Sheet Tab Error: '{name}' tab ti khuje pawa jachche na.")
         return None
 
 # --- 3. LOGIN LOGIC ---
 USER_CREDENTIALS = {"azman@pathao.com": "pathao123", "asikul.islam@pathao.com": "pathao456"}
-if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
+if 'logged_in' not in st.session_state: 
+    st.session_state['logged_in'] = False
 
 if not st.session_state['logged_in']:
     st.title("🔐 Secure Access Control")
@@ -52,7 +56,8 @@ if not st.session_state['logged_in']:
             if u_email in USER_CREDENTIALS and USER_CREDENTIALS[u_email] == u_pass:
                 st.session_state['logged_in'] = True
                 st.rerun()
-            else: st.error("Wrong Email/Password")
+            else: 
+                st.error("Wrong Email/Password")
     st.stop()
 
 # --- 4. NAVIGATION ---
@@ -75,7 +80,8 @@ if page == "Dashboard":
             c2.metric("Actual", f"{a_h}h")
             c3.metric("Efficiency", f"{(a_h/p_h*100):.1f}%" if p_h > 0 else "0%")
             st.table(df.groupby('Task Name')[['Planned Hours', 'Actual Hours']].sum())
-        else: st.info("No data yet.")
+        else: 
+            st.info("No data yet.")
 
 # --- 6. PLAN TASKS ---
 elif page == "Plan Daily Tasks":
@@ -88,25 +94,28 @@ elif page == "Plan Daily Tasks":
             ws = get_worksheet("tasks")
             if ws:
                 ws.append_row([today_str, cat, name, ph, 0, "Planned", ""])
-                st.success("Saved!")
+                st.success("Saved to Google Sheet!")
 
 # --- 7. UPDATE STATUS ---
 elif page == "Update Status (EOD)":
     st.header("✅ End of Day Update")
     ws = get_worksheet("tasks")
     if ws:
-        df = pd.DataFrame(ws.get_all_records())
-        pending = df[(df['Date'] == today_str) & (df['Status'] == "Planned")]
-        if not pending.empty:
-            for idx, row in pending.iterrows():
-                with st.expander(f"Task: {row['Task Name']}"):
-                    ah = st.number_input("Actual Hours", 0.0, 15.0, float(row['Planned Hours']), key=f"h{idx}")
-                    stat = st.selectbox("Status", ["Completed", "Incompleted"], key=f"s{idx}")
-                    if st.button("Update", key=f"b{idx}"):
-                        ws.update_cell(idx + 2, 5, ah)
-                        ws.update_cell(idx + 2, 6, stat)
-                        st.success("Updated!"); st.rerun()
-        else: st.info("Nothing to update.")
+        records = ws.get_all_records()
+        if records:
+            df = pd.DataFrame(records)
+            pending = df[(df['Date'] == today_str) & (df['Status'] == "Planned")]
+            if not pending.empty:
+                for idx, row in pending.iterrows():
+                    with st.expander(f"Task: {row['Task Name']}"):
+                        ah = st.number_input("Actual Hours", 0.0, 15.0, float(row['Planned Hours']), key=f"h{idx}")
+                        stat = st.selectbox("Status", ["Completed", "Incompleted"], key=f"s{idx}")
+                        if st.button("Update", key=f"b{idx}"):
+                            ws.update_cell(idx + 2, 5, ah)
+                            ws.update_cell(idx + 2, 6, stat)
+                            st.success("Updated!"); st.rerun()
+            else: 
+                st.info("Nothing to update for today.")
 
 # --- 8. QA DETAILS ---
 elif page == "QA Details":
@@ -115,11 +124,13 @@ elif page == "QA Details":
         ch = st.selectbox("Channel", ["Email", "Chat", "Call"])
         cnt = st.number_input("Audit Count", 1)
         err = st.number_input("Errors", 0)
-        if st.form_submit_button("Log"):
+        if st.form_submit_button("Log QA"):
             ws = get_worksheet("qa")
             if ws:
-                ws.append_row([today_str, ch, cnt, err, f"{((cnt-err)/cnt)*100:.1f}%", (cnt*15)/60])
-                st.success("Logged!")
+                acc = f"{((cnt-err)/cnt)*100:.1f}%"
+                hrs = (cnt*15)/60
+                ws.append_row([today_str, ch, cnt, err, acc, hrs])
+                st.success("QA Data Logged!")
 
 # --- 9. DRIVER ONBOARDING ---
 elif page == "Driver Onboarding":
@@ -132,7 +143,7 @@ elif page == "Driver Onboarding":
             ws = get_worksheet("drivers")
             if ws:
                 ws.append_row([today_str, name, phone, "Dhaka", "Yes", "submitted", stat, "Call received", "No"])
-                st.success("Driver Saved!")
+                st.success("Driver Data Saved!")
 
 # --- 10. SUSPENSION ---
 elif page == "Suspension Re-Validation":
@@ -143,6 +154,9 @@ elif page == "Suspension Re-Validation":
         if st.button("Push to Sheet"):
             ws = get_worksheet("revalidation")
             if ws:
-                df_up.insert(0, 'Re-validation Date', today_str)
-                ws.append_rows(df_up.values.tolist())
-                st.success("Pushed Successfully!")
+                # Insert Date as first column
+                data_to_save = df_up.values.tolist()
+                for row in data_to_save:
+                    row.insert(0, today_str)
+                ws.append_rows(data_to_save)
+                st.success("Bulk Data Pushed Successfully!")
