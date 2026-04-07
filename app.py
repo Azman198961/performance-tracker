@@ -65,100 +65,99 @@ if st.sidebar.button("Logout"):
     st.session_state['logged_in'] = False
     st.rerun()
 
-# --- 5. PAGE: DASHBOARD (UPDATED WITH WEEKLY/MONTHLY REPORTS) ---
+# --- 5. PAGE: DASHBOARD (TARGETS + FILTERS) ---
 if page == "Dashboard":
     st.header("📊 Performance Dashboard & Targets")
     
     # লোড ডাটা
-    ws_qa = get_ws("qa"); ws_drivers = get_ws("drivers"); ws_training = get_ws("training")
+    ws_qa = get_ws("qa"); ws_drivers = get_ws("drivers"); ws_training = get_ws("training"); ws_tasks = get_ws("tasks")
     q_df = pd.DataFrame(ws_qa.get_all_records()) if ws_qa else pd.DataFrame()
     d_df = pd.DataFrame(ws_drivers.get_all_records()) if ws_drivers else pd.DataFrame()
     t_df = pd.DataFrame(ws_training.get_all_records()) if ws_training else pd.DataFrame()
+    tasks_df = pd.DataFrame(ws_tasks.get_all_records()) if ws_tasks else pd.DataFrame()
 
     # ডাটা ক্লিনিং
-    for df in [q_df, d_df, t_df]:
+    for df in [q_df, d_df, t_df, tasks_df]:
         if not df.empty:
             df.columns = df.columns.str.strip()
             df['Date'] = pd.to_datetime(df['Date']).dt.date
 
-    # --- ফিল্টার সেকশন ---
-    st.subheader("🔍 Filter Report")
+    # --- ১. রিয়েল-টাইম টার্গেট সেকশন (সবসময় দেখা যাবে) ---
+    st.subheader("🎯 Current Progress vs Targets")
+    t_col1, t_col2, t_col3, t_col4 = st.columns(4)
+    
+    start_of_week = today - timedelta(days=(today.weekday() + 2) % 7)
+    
+    # ১.১ QA Audit (Daily Target: 12)
+    today_qa = q_df[q_df['Date'] == today]['Audit Count'].sum() if not q_df.empty else 0
+    t_col1.metric("Today's QA Audits", f"{int(today_qa)}/12", delta=int(today_qa)-12)
+    
+    # ১.২ Weekly Onboarding (Target: 10)
+    week_dr = len(d_df[(d_df['Date'] >= start_of_week) & (d_df['Acc Status'] == 'Active')]) if not d_df.empty else 0
+    t_col2.metric("Weekly Onboarding", f"{week_dr}/10", delta=week_dr-10)
+    
+    # ১.৩ Weekly Training (Target: 5)
+    week_tr = len(t_df[t_df['Date'] >= start_of_week]) if not t_df.empty else 0
+    t_col3.metric("Weekly Training", f"{week_tr}/5", delta=week_tr-5)
+    
+    # ১.৪ মাসিক কাজের দিন
+    m_days = get_working_days(today.replace(day=1), today)
+    t_col4.metric("Working Days (Month)", f"{m_days} Days")
+
+    st.divider()
+
+    # --- ২. ফিল্টার করা রিপোর্ট সেকশন ---
+    st.subheader("🔍 Historical Report & Analytics")
     report_type = st.radio("Select View:", ["Daily", "Weekly", "Monthly"], horizontal=True)
 
     if report_type == "Daily":
-        target_date = today
-        q_filtered = q_df[q_df['Date'] == target_date] if not q_df.empty else pd.DataFrame()
-        d_filtered = d_df[d_df['Date'] == target_date] if not d_df.empty else pd.DataFrame()
-        t_filtered = t_df[t_df['Date'] == target_date] if not t_df.empty else pd.DataFrame()
-        title_suffix = "Today"
-        
+        q_filtered = q_df[q_df['Date'] == today] if not q_df.empty else pd.DataFrame()
+        d_filtered = d_df[d_df['Date'] == today] if not d_df.empty else pd.DataFrame()
+        t_filtered = t_df[t_df['Date'] == today] if not t_df.empty else pd.DataFrame()
+        suffix = "Today"
     elif report_type == "Weekly":
-        start_of_week = today - timedelta(days=(today.weekday() + 2) % 7) # Sunday শুরু ধরলে
         q_filtered = q_df[q_df['Date'] >= start_of_week] if not q_df.empty else pd.DataFrame()
         d_filtered = d_df[d_df['Date'] >= start_of_week] if not d_df.empty else pd.DataFrame()
         t_filtered = t_df[t_df['Date'] >= start_of_week] if not t_df.empty else pd.DataFrame()
-        title_suffix = "This Week"
-        
+        suffix = "This Week"
     else: # Monthly
         start_of_month = today.replace(day=1)
         q_filtered = q_df[q_df['Date'] >= start_of_month] if not q_df.empty else pd.DataFrame()
         d_filtered = d_df[d_df['Date'] >= start_of_month] if not d_df.empty else pd.DataFrame()
         t_filtered = t_df[t_df['Date'] >= start_of_month] if not t_df.empty else pd.DataFrame()
-        title_suffix = "This Month"
+        suffix = "This Month"
 
-    # --- মেট্রিক্স ডিসপ্লে ---
-    st.divider()
-    m1, m2, m3, m4 = st.columns(4)
-
-    # ১. QA Audits
-    total_audits = q_filtered['Audit Count'].sum() if not q_filtered.empty else 0
-    m1.metric(f"QA Audits ({title_suffix})", f"{int(total_audits)}")
-
-    # ২. Driver Onboarding (Active)
-    active_drivers = len(d_filtered[d_filtered['Acc Status'] == 'Active']) if not d_filtered.empty else 0
-    m2.metric(f"Active Drivers ({title_suffix})", f"{active_drivers}")
-
-    # ৩. Training Sessions
-    total_training = len(t_filtered) if not t_filtered.empty else 0
-    m3.metric(f"Trainings ({title_suffix})", f"{total_training}")
-
-    # ৪. Accuracy (Average)
+    # ফিল্টারড মেট্রিক্স
+    f_col1, f_col2, f_col3, f_col4 = st.columns(4)
+    f_col1.metric(f"Total Audits", int(q_filtered['Audit Count'].sum()) if not q_filtered.empty else 0)
+    f_col2.metric(f"Total Onboarded", len(d_filtered[d_filtered['Acc Status'] == 'Active']) if not d_filtered.empty else 0)
+    f_col3.metric(f"Total Training", len(t_filtered) if not t_filtered.empty else 0)
+    
     if not q_filtered.empty:
-        # পার্সেন্টেজ টেক্সট থেকে নাম্বার এ কনভার্ট
-        q_filtered['Acc_Num'] = q_filtered['Accuracy %'].str.rstrip('%').astype(float)
+        q_filtered['Acc_Num'] = pd.to_numeric(q_filtered['Accuracy %'].astype(str).str.rstrip('%'), errors='coerce')
         avg_acc = q_filtered['Acc_Num'].mean()
-        m4.metric(f"Avg QA Accuracy", f"{avg_acc:.1f}%")
+        f_col4.metric("Avg Accuracy", f"{avg_acc:.1f}%")
     else:
-        m4.metric(f"Avg QA Accuracy", "0%")
+        f_col4.metric("Avg Accuracy", "0%")
 
-    # --- চার্ট সেকশন (Visual Reports) ---
-    st.divider()
-    col_chart1, col_chart2 = st.columns(2)
-
-    with col_chart1:
-        st.subheader(f"📅 Activity Trend ({report_type})")
+    # --- ৩. ভিজ্যুয়াল চার্ট ---
+    c1, c2 = st.columns(2)
+    with c1:
+        st.write(f"📈 **Audit Trend ({suffix})**")
         if not q_filtered.empty:
-            # ডেইলি ট্রেন্ড চার্ট
-            chart_data = q_filtered.groupby('Date')['Audit Count'].sum().reset_index()
-            st.line_chart(chart_data.set_index('Date'))
-        else:
-            st.info("No data available for chart.")
-
-    with col_chart2:
-        st.subheader("🏢 Channel Distribution")
+            chart_data = q_filtered.groupby('Date')['Audit Count'].sum()
+            st.line_chart(chart_data)
+    with c2:
+        st.write(f"🏢 **Channel Distribution ({suffix})**")
         if not q_filtered.empty:
-            # চ্যানেল ভিত্তিক পাই চার্ট (Bar chart হিসেবে streamlit এ সহজ)
-            channel_data = q_filtered.groupby('Channel')['Audit Count'].sum()
-            st.bar_chart(channel_data)
-        else:
-            st.info("No data available for distribution.")
+            st.bar_chart(q_filtered.groupby('Channel')['Audit Count'].sum())
 
-    # --- বিস্তারিত টেবিল ---
-    with st.expander(f"See Detailed {report_type} Records"):
-        st.write("QA Logs:")
-        st.dataframe(q_filtered, use_container_width=True)
-        st.write("Training Logs:")
-        st.dataframe(t_filtered, use_container_width=True)
+    # --- ৪. ডিটেইলড টেবিল ---
+    with st.expander("View Detailed Records"):
+        tab_q, tab_t, tab_d = st.tabs(["QA Logs", "Training", "Drivers"])
+        tab_q.dataframe(q_filtered, use_container_width=True)
+        tab_t.dataframe(t_filtered, use_container_width=True)
+        tab_d.dataframe(d_filtered, use_container_width=True)
 
 # --- 6. PAGE: AGENT TRAINING ---
 elif page == "Agent Training":
