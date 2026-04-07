@@ -145,19 +145,52 @@ elif page == "Update Task Status (EOD)":
             else:
                 st.error("Sheet-এ 'Date' অথবা 'Status' কলাম পাওয়া যায়নি।")
 
-# --- 8. PAGE: QA DETAILS ---
+# --- 8. PAGE: QA DETAILS (MODIFIED) ---
 elif page == "QA Details":
     st.header("🔍 QA Audit Logs")
+    
+    # QA শিট থেকে আগের ডেটা দেখানোর জন্য
+    ws = get_ws("qa")
+    
     with st.form("qa_log", clear_on_submit=True):
-        cnt = st.number_input("Audit Count", 1)
-        err = st.number_input("Errors", 0)
+        # ১. চ্যানেল ড্রপডাউন
+        channel = st.selectbox("Channel Name", [
+            "Inbound", 
+            "Live Chat", 
+            "Report Issue & Email", 
+            "Complaint Management"
+        ])
+        
+        col1, col2 = st.columns(2)
+        # ২. অডিট কাউন্ট
+        cnt = col1.number_input("Audit Count", min_value=1, step=1)
+        # ৩. ক্রিটিক্যাল এরর কাউন্ট
+        err = col2.number_input("Critical Errors", min_value=0, step=1)
+        
         if st.form_submit_button("Log QA"):
-            ws = get_ws("qa")
-            if ws and cnt > 0:
-                acc = f"{((cnt-err)/cnt)*100:.1f}%"
-                hrs = (cnt * 15) / 60 
-                ws.append_row([today_str, "General", cnt, err, acc, hrs])
-                st.success("QA Saved!")
+            if ws:
+                # ক্যালকুলেশন
+                accuracy = f"{((cnt - err) / cnt) * 100:.1f}%" if cnt > 0 else "0%"
+                # অডিট প্রতি ১৫ মিনিট ধরে টাইম ক্যালকুলেশন (আপনার আগের লজিক অনুযায়ী)
+                hrs = round((cnt * 15) / 60, 2)
+                
+                # শিটে ডেটা পুশ (Date, Channel, Audit Count, Errors, Accuracy, Hours)
+                try:
+                    ws.append_row([today_str, channel, cnt, err, accuracy, hrs])
+                    st.success(f"✅ QA Logged for {channel}!")
+                except Exception as e:
+                    st.error(f"Error saving to sheet: {e}")
+
+    # হিস্ট্রি দেখার জন্য ছোট একটি টেবিল (অপশনাল কিন্তু হেল্পফুল)
+    st.divider()
+    st.subheader("Recent QA Entries")
+    if ws:
+        qa_data = ws.get_all_records()
+        if qa_data:
+            q_df = pd.DataFrame(qa_data)
+            q_df.columns = q_df.columns.str.strip()
+            # শুধু আজকের এন্ট্রিগুলো দেখাবে
+            st.dataframe(q_df[q_df['Date'].astype(str) == today_str], use_container_width=True)
 
 # --- 9. PAGE: DRIVER ONBOARDING ---
 elif page == "Driver Onboarding":
